@@ -1,0 +1,403 @@
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation } from 'd3-force';
+import type { Unit } from '../shared/types.ts';
+import {
+  STRUCTURES, SUPPORT_TITLE, reslot, support, type Board, type StructureDef, type StructureId,
+} from '../shared/structures.ts';
+import { archetypes } from './api.ts';
+import { LevelPicker } from './LevelPicker.tsx';
+import { slugify, type Lane, type Role } from '../shared/structures.ts';
+import { UNIT_TYPES } from '../shared/types.ts';
+import { TYPE_INK } from './typeStyle.ts';
+import { rectCollide, resolveOverlaps, type BoxNode } from './collide.ts';
+
+type SimNode = BoxNode & { claim: boolean };
+type SimLink = { source: string | SimNode; target: string | SimNode; key: string };
+
+const LABEL_W = 180;     // outline column at far left
+const MID = 0.5;        // drop left of this to lock into a level, right of it to release
+const LOCKED_MAX = 0.62; // locked clusters stay left of this
+const LOOSE_MIN = 0.5;   // loose clusters float right of this
+const MIN_BAND = 88;
+const MARK = { none: '○', unchecked: '◐', checked: '●' } as const;
+
+type Props = {
+  units: Unit[];
+  board: Board;
+  onBoard: (b: Board) => void;
+  onSelect: (id: string | null) => void;
+  selectedId: string | null;
+  onNext: () => void;
+  readOnly?: boolean;
+  structures: Record<string, StructureDef>;
+  onCustom: (list: StructureDef[]) => void;
+};
+
+export function Structure({ units, board, onBoard, onSelect, selectedId, onNext, readOnly = false, structures, onCustom }: Props) {
+  const live = useMemo(() => units.filter((u) => u.status !== 'cut'), [units]);
+  const byId = useMemo(() => new Map(live.map((u) => [u.id, u])), [live]);
+  const sid = board.structure;
+  const def = structures[sid] ?? STRUCTURES.persuasive;
+  const lanes = def.lanes;
+  const [adding, setAdding] = useState(false);
+  const [dialog, setDialog] = useState<{ id?: string; name: string; outline: string; error?: string } | null>(null);
+  const assign = board.lanes[sid] ?? {};
+
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ W: 800, H: 600 });
+  const poolX = Math.round(size.W * MID);
+
+  // Which lane each unit is placed in, and its order there.
+  const placedAt = useMemo(() => {
+    const m = new Map<string, { lane: number; order: number }>();
+    lanes.forEach((l, i) => (assign[l.id] ?? []).filter((id) => byId.has(id)).forEach((id, order) => m.set(id, { lane: i, order })));
+    return m;
+  }, [lanes, assign, byId]);
+
+  /** The unit a node travels with: itself if placed or a root; otherwise its claim. */
+  const rootOf = (u: Unit): Unit => (placedAt.has(u.id) || !u.home || !byId.has(u.home) ? u : rootOf(byId.get(u.home)!));
+
+  const nodeEls = useRef(new Map<string, HTMLDivElement>());
+
+  // Each level is at least an even share of the view, and grows to fit what is placed in it.
+  const { bandTop, bandHt, totalH } = useMemo(() => {
+    const base = Math.max(MIN_BAND, size.H / lanes.length);
+    const perRow = Math.max(1, Math.floor((size.W * LOCKED_MAX - LABEL_W - 30) / 200));
+    const stack = lanes.map(() => 0);
+    for (const u of live) {
+      const r = rootOf(u); const p = placedAt.get(r.id);
+      if (p) stack[p.lane] += (nodeEls.current.get(u.id)?.offsetHeight ?? 44) + 14;
+    }
+    const bandHt = stack.map((h) => Math.max(base, 24 + Math.ceil(h / perRow)));
+    const bandTop = bandHt.map((_, i) => bandHt.slice(0, i).reduce((a, b) => a + b, 0));
+    return { bandTop, bandHt, totalH: bandHt.reduce((a, b) => a + b, 0) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lanes, live, placedAt, size.H, size.W]);
+
+  const edges = useMemo(() => live.filter((u) => u.home && byId.has(u.home) && !placedAt.has(u.id))
+    .map((u) => ({ key: `${u.home}-${u.id}`, source: u.home!, target: u.id })), [live, byId, placedAt]);
+  /** Units pulled out of their cluster keep a faint thread back to their claim; it does not pull them. */
+  const threads = useMemo(() => live.filter((u) => u.home && byId.has(u.home) && placedAt.has(u.id))
+    .map((u) => ({ key: `t-${u.home}-${u.id}`, a: u.home!, b: u.id })), [live, byId, placedAt]);
+  const threadsRef = useRef(threads);
+  threadsRef.current = threads;
+
+  const edgeEls = useRef(new Map<string, SVGLineElement>());
+  const simNodes = useRef(new Map<string, SimNode>());
+  const sim = useRef<Simulation<SimNode, SimLink> | null>(null);
+  const target = useRef(new Map<string, { x: number; y: number; placed: boolean; band?: [number, number] }>());
+  const dragging = useRef<string | null>(null);
+  const settledFor = useRef('');
+  const [hoverBand, setHoverBand] = useState<{ i: number; ok: boolean } | null>(null);
+  const [dragOn, setDragOn] = useState(false);
+
+  // Geometry the simulation reads live; the tick handler is created once and must not close over stale values.
+  const geo = useRef({ poolX, W: size.W, totalH });
+  geo.current = { poolX, W: size.W, totalH };
+
+  const paint = () => {
+    const s = sim.current; if (!s) return;
+    const ns = s.nodes();
+    const { poolX, W, totalH } = geo.current;
+    // Keep clusters inside their region (placed: their band; loose: the pool) and never overlapping.
+    const clamp = () => {
+      for (const n of ns) {
+        const t = target.current.get(n.id); if (!t || n.id === dragging.current) continue;
+        const minX = (t.placed ? LABEL_W : W * LOOSE_MIN) + n.w / 2 + 8, maxX = (t.placed ? W * LOCKED_MAX : W) - n.w / 2 - 8;
+        n.x = Math.min(Math.max(n.x!, minX), Math.max(minX, maxX));
+        if (t.band) n.y = Math.min(Math.max(n.y!, t.band[0] + n.h / 2 + 6), Math.max(t.band[0] + n.h / 2 + 6, t.band[1] - n.h / 2 - 6));
+        else n.y = Math.min(Math.max(n.y!, n.h / 2 + 6), totalH - n.h / 2 - 6);
+      }
+    };
+    for (let k = 0; k < 6; k++) { clamp(); resolveOverlaps(ns); }
+    // Too little room sideways: settle vertically, then re-check regions.
+    clamp();
+    // Final rule inside each region: whatever still overlaps stacks below the item above it.
+    const groups = new Map<string, SimNode[]>();
+    for (const n of ns) {
+      const t = target.current.get(n.id);
+      const k = t?.band ? `b${t.band[0]}` : 'pool';
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k)!.push(n);
+    }
+    for (const g of groups.values()) {
+      g.sort((a, b) => Number(b.fy != null) - Number(a.fy != null) || a.y! - b.y!);
+      for (let i = 0; i < g.length; i++) {
+        const b = g[i];
+        if (b.fy != null) continue;
+        for (let pass = 0, hit = true; hit && pass < g.length; pass++) {
+          hit = false;
+          for (let j = 0; j < i; j++) {
+            const a = g[j];
+            if ((a.w + b.w) / 2 + 10 - Math.abs(b.x! - a.x!) > 0 && (a.h + b.h) / 2 + 10 - Math.abs(b.y! - a.y!) > 0) {
+              b.y = a.y! + (a.h + b.h) / 2 + 10; hit = true;
+            }
+          }
+        }
+      }
+    }
+    for (const n of ns) {
+      const el = nodeEls.current.get(n.id);
+      if (el) el.style.transform = `translate(${n.x! - n.w / 2}px, ${n.y! - n.h / 2}px)`;
+    }
+    for (const th of threadsRef.current) {
+      const el = edgeEls.current.get(th.key), a = simNodes.current.get(th.a), b = simNodes.current.get(th.b);
+      if (el && a && b) { el.setAttribute('x1', String(a.x)); el.setAttribute('y1', String(a.y)); el.setAttribute('x2', String(b.x)); el.setAttribute('y2', String(b.y)); }
+    }
+    for (const l of s.force<ReturnType<typeof forceLink<SimNode, SimLink>>>('link')!.links()) {
+      const el = edgeEls.current.get(l.key), a = l.source as SimNode, b = l.target as SimNode;
+      if (el) { el.setAttribute('x1', String(a.x)); el.setAttribute('y1', String(a.y)); el.setAttribute('x2', String(b.x)); el.setAttribute('y2', String(b.y)); }
+    }
+  };
+
+  useLayoutEffect(() => {
+    const s = forceSimulation<SimNode, SimLink>([])
+      .force('link', forceLink<SimNode, SimLink>([]).id((d) => d.id).distance(50).strength(0.8))
+      .force('charge', forceManyBody<SimNode>().strength(-90))
+      .force('x', forceX<SimNode>((d) => target.current.get(d.id)?.x ?? 0).strength((d) => (target.current.get(d.id)?.placed ? 0.12 : 0.05)))
+      .force('y', forceY<SimNode>((d) => target.current.get(d.id)?.y ?? 0).strength((d) => (target.current.get(d.id)?.band ? 0.3 : 0.04)))
+      .force('collide', rectCollide())
+      .alphaDecay(0.04)
+      .on('tick', paint)
+      .stop();
+    sim.current = s;
+    const ro = new ResizeObserver(() => {
+      const b = boxRef.current; if (b) setSize({ W: b.clientWidth, H: b.clientHeight });
+    });
+    if (boxRef.current) { ro.observe(boxRef.current); setSize({ W: boxRef.current.clientWidth, H: boxRef.current.clientHeight }); }
+    return () => { s.stop(); ro.disconnect(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Recompute targets whenever the arrangement or the canvas changes.
+  useLayoutEffect(() => {
+    const s = sim.current; if (!s) return;
+    const t = new Map<string, { x: number; y: number; placed: boolean; band?: [number, number] }>();
+    const slotX = new Map<number, number>();
+    const orderedPlaced = [...placedAt.entries()].sort((a, b) => a[1].lane - b[1].lane || a[1].order - b[1].order);
+    for (const [id, p] of orderedPlaced) {
+      const x0 = slotX.get(p.lane) ?? LABEL_W + 30;
+      const w = nodeEls.current.get(id)?.offsetWidth ?? 140;
+      slotX.set(p.lane, x0 + w + 90);
+      const h = nodeEls.current.get(id)?.offsetHeight ?? 40;
+      t.set(id, { x: x0 + w / 2, y: bandTop[p.lane] + h / 2 + 14, placed: true, band: [bandTop[p.lane], bandTop[p.lane] + bandHt[p.lane]] });
+    }
+    const pool = { x: size.W * 0.78, y: totalH / 2, placed: false };
+    for (const u of live) if (!t.has(u.id) && rootOf(u).id === u.id) t.set(u.id, pool);
+    for (const u of live) {
+      if (t.has(u.id)) continue;
+      const r = rootOf(u), rp = t.get(r.id);
+      if (rp) t.set(u.id, { x: rp.x, y: rp.y, placed: rp.placed, band: rp.band });
+      else t.set(u.id, pool);
+    }
+    target.current = t;
+
+    const next: SimNode[] = live.map((u) => {
+      const el = nodeEls.current.get(u.id);
+      let n = simNodes.current.get(u.id);
+      if (!n) {
+        const tt = t.get(u.id)!;
+        n = { id: u.id, w: 0, h: 0, claim: false, x: tt.x + (Math.random() - 0.5) * 60, y: tt.y + (Math.random() - 0.5) * 60 };
+      }
+      n.w = el?.offsetWidth ?? 120; n.h = el?.offsetHeight ?? 24; n.claim = u.type === 'claim';
+      const tt = t.get(u.id)!;
+      n.fy = placedAt.has(u.id) ? tt.y : null;
+      return n;
+    });
+    simNodes.current = new Map(next.map((n) => [n.id, n]));
+    s.nodes(next);
+    s.force<ReturnType<typeof forceLink<SimNode, SimLink>>>('link')!.links(edges.map((e) => ({ ...e })));
+    s.force<ReturnType<typeof forceX<SimNode>>>('x')!.x((d) => target.current.get(d.id)?.x ?? 0);
+    s.force<ReturnType<typeof forceY<SimNode>>>('y')!.y((d) => target.current.get(d.id)?.y ?? 0);
+    const key = `${size.W}x${size.H}`;
+    if (settledFor.current !== key) {
+      // Lay out up front on first view and on resize, so the page is complete even if animation frames are paused.
+      settledFor.current = key;
+      s.alpha(1);
+      for (let i = 0; i < 240; i++) s.tick();
+      paint();
+    } else {
+      s.alpha(Math.max(s.alpha(), 0.6)).restart();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, edges, placedAt, size, bandTop, bandHt, poolX, totalH]);
+
+  const canvasPoint = (e: { clientX: number; clientY: number }) => {
+    const r = boxRef.current!.getBoundingClientRect();
+    return { x: e.clientX - r.left + boxRef.current!.scrollLeft, y: e.clientY - r.top + boxRef.current!.scrollTop };
+  };
+
+  const place = (id: string, laneIdx: number | null, x: number) => {
+    const next: Record<string, string[]> = Object.fromEntries(Object.entries(assign).map(([k, v]) => [k, v.filter((z) => z !== id)]));
+    if (laneIdx !== null) {
+      const lane = lanes[laneIdx];
+      const others = (next[lane.id] ?? []).filter((z) => byId.has(z));
+      // The writer's placement wins: no type or slot limits, just order by where it was dropped.
+      const at = others.findIndex((z) => (simNodes.current.get(z)?.x ?? 0) > x);
+      next[lane.id] = at < 0 ? [...others, id] : [...others.slice(0, at), id, ...others.slice(at)];
+    }
+    onBoard({ ...board, lanes: { ...board.lanes, [sid]: next } });
+  };
+
+  const press = (e: React.PointerEvent, id: string) => {
+    e.stopPropagation();
+    const n = simNodes.current.get(id), u = byId.get(id);
+    if (!n || !u || !sim.current) return;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const start = canvasPoint(e), ox = n.x!, oy = n.y!;
+    let moved = false;
+    const bandAt = (y: number) => { const i = bandTop.findIndex((t, k) => y >= t && y < t + bandHt[k]); return i < 0 ? lanes.length - 1 : i; };
+    const move = (ev: PointerEvent) => {
+      const p = canvasPoint(ev);
+      if (!moved && Math.hypot(p.x - start.x, p.y - start.y) < 4) return;
+      if (!moved) { moved = true; dragging.current = id; setDragOn(true); sim.current!.alphaTarget(0.25).restart(); }
+      n.fx = ox + p.x - start.x; n.fy = oy + p.y - start.y;
+      setHoverBand(p.x < poolX ? { i: bandAt(p.y), ok: true } : null);
+    };
+    const up = (ev: PointerEvent) => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      dragging.current = null;
+      setHoverBand(null);
+      setDragOn(false);
+      n.fx = null; n.fy = placedAt.has(id) ? n.fy : null;
+      sim.current!.alphaTarget(0);
+      if (!moved) { onSelect(id); return; }
+      if (readOnly) return;
+      const p = canvasPoint(ev);
+      if (p.x >= poolX) { if (placedAt.has(id)) place(id, null, p.x); else sim.current!.alpha(0.5).restart(); return; }
+      place(id, bandAt(p.y), p.x);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+  };
+
+  const switchTo = (to: StructureId) => {
+    if (to === sid || readOnly || !structures[to]) return;
+    const has = Object.values(board.lanes[to] ?? {}).some((a) => a.length);
+    onBoard({ structure: to, lanes: { ...board.lanes, [to]: has ? board.lanes[to] : reslot(board, structures[sid], structures[to], live) } });
+  };
+
+  const saveOutline = async () => {
+    if (!dialog) return;
+    if (!dialog.name.trim()) { setDialog({ ...dialog, error: 'Name it first' }); return; }
+    if (!dialog.outline.trim()) { setDialog({ ...dialog, error: 'Add at least one level' }); return; }
+    try {
+      const saved = await archetypes.save({ id: dialog.id, name: dialog.name, outline: dialog.outline });
+      onCustom(await archetypes.list());
+      setDialog(null);
+      if (saved.id !== sid) {
+        const has = Object.values(board.lanes[saved.id] ?? {}).some((a) => a.length);
+        onBoard({ structure: saved.id, lanes: { ...board.lanes, [saved.id]: has ? board.lanes[saved.id] : reslot(board, structures[sid], saved, live) } });
+      }
+    } catch (e) { setDialog({ ...dialog, error: (e as Error).message }); }
+  };
+
+  /** Add a level where the outline lives. Built-in outlines are templates: the first edit saves the writer's own copy. */
+  const addLevel = async (name: string, role: Role = 'point') => {
+    setAdding(false);
+    const clean = name.trim().toLowerCase();
+    if (!clean || readOnly) return;
+    let id = slugify(clean) || 'level';
+    for (let i = 2; lanes.some((l) => l.id === id); i++) id = `${slugify(clean) || 'level'}-${i}`;
+    const lane: Lane = { id, name: clean, role, accepts: [...UNIT_TYPES], single: false, required: false };
+    // Next to its own kind (argument 4 after argument 3); otherwise before the closing levels.
+    const sameKind = lanes.map((l) => l.role).lastIndexOf(role);
+    const closing = lanes.findIndex((l) => l.role === 'close' || l.role === 'footnote');
+    const at = role === 'footnote' ? lanes.length : sameKind >= 0 ? sameKind + 1 : closing >= 0 ? closing : lanes.length;
+    const next = [...lanes.slice(0, at), lane, ...lanes.slice(at)];
+    try {
+      const saved = await archetypes.save(def.custom ? { id: def.id, name: def.name, lanes: next } : { name: `my ${def.name}`, lanes: next });
+      onCustom(await archetypes.list());
+      if (saved.id !== sid) onBoard({ structure: saved.id, lanes: { ...board.lanes, [saved.id]: { ...(board.lanes[sid] ?? {}) } } });
+    } catch (e) { setDialog({ name: def.name, outline: '', error: (e as Error).message }); }
+  };
+
+  const removeOutline = async () => {
+    if (!dialog?.id) return;
+    await archetypes.remove(dialog.id);
+    onCustom(await archetypes.list());
+    setDialog(null);
+    if (sid === dialog.id) onBoard({ ...board, structure: 'persuasive' });
+  };
+
+  const sel = selectedId ? byId.get(selectedId) : undefined;
+  const selRoot = sel ? rootOf(sel).id : null;
+
+  return (
+    <div className="structure">
+      <nav className="structure-bar">
+        {Object.values(structures).map((s) => (
+          <button key={s.id} className={`stage ${s.id === sid ? 'on' : ''}`} onClick={() => switchTo(s.id)}
+            onDoubleClick={() => s.custom && !readOnly && setDialog({ id: s.id, name: s.name, outline: s.lanes.map((l) => l.name).join('\n') })}
+            title={s.custom ? 'double-click to edit' : undefined}>{s.name}</button>
+        ))}
+        {!readOnly && <button className="stage add" onClick={() => setDialog({ name: '', outline: '' })} aria-label="Make your own outline">+</button>}
+        <span className="spacer" />
+        {!readOnly && <button className="link" onClick={onNext}>draft →</button>}
+      </nav>
+      {dialog && (
+        <div className="outline-dialog" onKeyDown={(e) => { if (e.key === 'Escape') setDialog(null); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveOutline(); }}>
+          <input autoFocus placeholder="name" value={dialog.name} onChange={(e) => setDialog({ ...dialog, name: e.target.value, error: undefined })} />
+          <textarea rows={Math.max(6, dialog.outline.split('\n').length + 1)} placeholder={'one level per line\n\nhook\nthesis\nargument 1\nargument 2\nconclusion'}
+            value={dialog.outline} onChange={(e) => setDialog({ ...dialog, outline: e.target.value, error: undefined })} />
+          {dialog.error && <p className="error">{dialog.error}</p>}
+          <div className="dialog-bar">
+            {dialog.id && <button className="link muted" onClick={removeOutline}>delete</button>}
+            <span className="spacer" />
+            <button className="link muted" onClick={() => setDialog(null)}>cancel</button>
+            <button className="link" onClick={saveOutline}>{dialog.id ? 'save' : 'use'}</button>
+          </div>
+        </div>
+      )}
+      <div className="levels" ref={boxRef} onPointerDown={() => onSelect(null)}>
+        <div className="levels-canvas" style={{ height: totalH + 56 }}>
+          {lanes.map((l, i) => {
+            const filled = (assign[l.id] ?? []).some((id) => byId.has(id));
+            const hb = hoverBand?.i === i ? (hoverBand.ok ? 'accept' : 'reject') : '';
+            return (
+              <div key={l.id} className={`level ${hb}`} style={{ top: bandTop[i], height: bandHt[i] }}>
+                <span className={`level-name ${l.required && !filled ? 'gap' : ''}`} style={{ top: 34 }} title={l.accepts.join(', ')}>{l.name}</span>
+              </div>
+            );
+          })}
+          {!readOnly && (
+            <div className="level-add" style={{ top: totalH + 10 }} onPointerDown={(e) => e.stopPropagation()}>
+              {adding
+                ? <LevelPicker existing={lanes.map((l) => l.name)} onPick={addLevel} onCancel={() => setAdding(false)} />
+                : <button className="link" onClick={() => setAdding(true)} aria-label="Add a level">+</button>}
+            </div>
+          )}
+          {hoverBand !== undefined && dragOn && <div className="pool-edge" style={{ left: poolX, height: totalH }} />}
+          <svg className="graph-edges" aria-hidden>
+            {edges.map((e) => <line key={e.key} ref={(el) => { if (el) edgeEls.current.set(e.key, el); else edgeEls.current.delete(e.key); }} />)}
+            {threads.map((e) => <line key={e.key} className="thread" ref={(el) => { if (el) edgeEls.current.set(e.key, el); else edgeEls.current.delete(e.key); }} />)}
+          </svg>
+          {live.map((u) => {
+            const r = rootOf(u);
+            const dim = selRoot !== null && r.id !== selRoot;
+            const s = u.type === 'claim' ? support(u, live) : null;
+            const at = placedAt.get(u.id);
+            const offType = at !== undefined && !lanes[at.lane].accepts.includes(u.type);
+            const cls = ['unit', u.type === 'claim' ? 'is-claim' : '', placedAt.has(r.id) ? 'is-placed' : '', offType ? 'off-type' : '', u.status === 'proposed' ? 'is-proposed' : '',
+              u.id === selectedId ? 'is-selected' : '', dim ? 'dim' : ''].join(' ');
+            return (
+              <div key={u.id} className={cls} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}
+                title={offType ? `${lanes[at!.lane].name} usually holds: ${lanes[at!.lane].accepts.join(', ')}` : undefined}
+                ref={(el) => { if (el) nodeEls.current.set(u.id, el); else nodeEls.current.delete(u.id); }}
+                onPointerDown={(e) => press(e, u.id)}>
+                {u.type !== 'claim' && <span className="kind">{u.type}</span>}
+                <span className="lbl">
+                  {s && <span className={`support s-${s}`} title={SUPPORT_TITLE[s]}>{MARK[s]} </span>}
+                  {u.label}
+                </span>
+                <div className="tip">{u.text}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
