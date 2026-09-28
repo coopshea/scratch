@@ -12,6 +12,7 @@ type SimLink = { source: string | SimNode; target: string | SimNode; key: string
 const PAD = 36;          // screen padding around the fitted graph
 const MIN_SCALE = 0.5;   // below this, text stops being readable
 const MAX_SCALE = 1.15;
+const HULL_PAD = 12;    // shaded area around a cluster
 
 type Props = {
   units: Unit[];
@@ -34,6 +35,9 @@ export function Graph({ units, selectedId, onSelect }: Props) {
     return out;
   }, [live]);
   const hidden = useMemo(() => new Set([...hiddenBy.values()].flat().map((u) => u.id)), [hiddenBy]);
+  const clusterIds = useMemo(() => [...new Set(live.flatMap((u) => (u.home && liveIds.has(u.home) ? [u.home] : [])))], [live, liveIds]);
+  const holding = useMemo(() => new Set(clusterIds), [clusterIds]);
+  const hullEls = useRef(new Map<string, SVGRectElement>());
   const [hoverRoot, setHoverRoot] = useState<string | null>(null);
   const hoverTimer = useRef<number | undefined>(undefined);
   const rootIdOf = (u: Unit) => (u.home && liveIds.has(u.home) ? u.home : u.id);
@@ -46,7 +50,7 @@ export function Graph({ units, selectedId, onSelect }: Props) {
   const edgeEls = useRef(new Map<string, SVGLineElement>());
   const simNodes = useRef(new Map<string, SimNode>());
   const sim = useRef<Simulation<SimNode, SimLink> | null>(null);
-  const view = useRef({ s: 1 });
+  const view = useRef({ s: 1, aspect: 1.5 });
   const first = useRef(true);
 
   const paint = () => {
@@ -62,10 +66,23 @@ export function Graph({ units, selectedId, onSelect }: Props) {
       const el = edgeEls.current.get(l.key), s = l.source as SimNode, t = l.target as SimNode;
       if (el) { el.setAttribute('x1', String(s.x)); el.setAttribute('y1', String(s.y)); el.setAttribute('x2', String(t.x)); el.setAttribute('y2', String(t.y)); }
     }
+    // Common region: a faint shaded area behind each cluster, the strongest cue that its pieces belong together.
+    const boxes = new Map<string, [number, number, number, number]>();
+    for (const n of ns) {
+      if (!n.group) continue;
+      const b = boxes.get(n.group) ?? [Infinity, Infinity, -Infinity, -Infinity];
+      boxes.set(n.group, [Math.min(b[0], n.x! - n.w / 2), Math.min(b[1], n.y! - n.h / 2), Math.max(b[2], n.x! + n.w / 2), Math.max(b[3], n.y! + n.h / 2)]);
+    }
+    for (const [id, el] of hullEls.current) {
+      const b = boxes.get(id); if (!b) continue;
+      el.setAttribute('x', String(b[0] - HULL_PAD)); el.setAttribute('y', String(b[1] - HULL_PAD));
+      el.setAttribute('width', String(b[2] - b[0] + 2 * HULL_PAD)); el.setAttribute('height', String(b[3] - b[1] + 2 * HULL_PAD));
+    }
     if (!ns.length) return;
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const n of ns) { x0 = Math.min(x0, n.x! - n.w / 2); x1 = Math.max(x1, n.x! + n.w / 2); y0 = Math.min(y0, n.y! - n.h / 2); y1 = Math.max(y1, n.y! + n.h / 2); }
     const W = box.clientWidth, H = box.clientHeight;
+    view.current.aspect = W / Math.max(1, H);
     const s = Math.max(MIN_SCALE, Math.min(MAX_SCALE, (W - 2 * PAD) / (x1 - x0), (H - 2 * PAD) / (y1 - y0)));
     view.current.s = s;
     const tx = W / 2 - ((x0 + x1) / 2) * s, ty = H / 2 - ((y0 + y1) / 2) * s;
@@ -78,9 +95,9 @@ export function Graph({ units, selectedId, onSelect }: Props) {
       .force('link', forceLink<SimNode, SimLink>([]).id((d) => d.id).distance((l) => ((l.target as SimNode).mini ? 34 : 60)).strength(0.7))
       .force('charge', forceManyBody<SimNode>().strength((d) => (!d.group ? -30 : d.claim ? -420 : d.mini ? -40 : -140)))
       // Clusters pull to the center; solo nodes are placed by their column instead.
-      .force('x', forceX<SimNode>(0).strength((d) => (!d.group ? 0 : d.claim ? 0.09 : 0.03)))
-      .force('y', forceY<SimNode>(0).strength((d) => (!d.group ? 0 : d.claim ? 0.13 : 0.05)))
-      .force('clusters', separateGroups())
+      .force('x', forceX<SimNode>(0).strength((d) => (!d.group ? 0 : (d.claim ? 0.09 : 0.03) / Math.max(1, view.current.aspect))))
+      .force('y', forceY<SimNode>(0).strength((d) => (!d.group ? 0 : (d.claim ? 0.13 : 0.05) * Math.max(1, view.current.aspect))))
+      .force('clusters', separateGroups(48, 0.5, () => view.current.aspect))
       .force('solo', soloColumn())
       .force('collide', rectCollide())
       .alphaDecay(0.035)
@@ -98,7 +115,6 @@ export function Graph({ units, selectedId, onSelect }: Props) {
     const s = sim.current;
     if (!s) return;
     const byUnit = new Map(live.map((u) => [u.id, u]));
-    const holding = new Set(live.flatMap((u) => (u.home && liveIds.has(u.home) ? [u.home] : [])));
     const groupOf = (u: Unit) => (u.home && liveIds.has(u.home) ? u.home : holding.has(u.id) ? u.id : null);
     const next: SimNode[] = live.map((u, order) => {
       const el = nodeEls.current.get(u.id);
@@ -160,6 +176,10 @@ export function Graph({ units, selectedId, onSelect }: Props) {
     <div className="graph" ref={boxRef} onPointerDown={() => onSelect(null)}>
       <div className="graph-world" ref={worldRef}>
         <svg className="graph-edges" aria-hidden>
+          {clusterIds.map((id) => (
+            <rect key={`h-${id}`} rx={10} className={`hull ${hoverRoot === id || clusterRoot === id ? 'on' : ''} ${!sel || clusterRoot === id ? '' : 'dim'}`}
+              ref={(el) => { if (el) hullEls.current.set(id, el); else hullEls.current.delete(id); }} />
+          ))}
           {edges.map((e) => (
             <line key={e.key} ref={(el) => { if (el) edgeEls.current.set(e.key, el); else edgeEls.current.delete(e.key); }}
               className={[!sel || e.source === clusterRoot ? '' : 'dim', hidden.has(e.target) ? 'faint' : ''].join(' ')} />
@@ -168,7 +188,8 @@ export function Graph({ units, selectedId, onSelect }: Props) {
         {live.map((u) => {
           const mini = hidden.has(u.id);
           const open = mini && (hoverRoot === rootIdOf(u) || clusterRoot === rootIdOf(u));
-          const cls = ['unit', isRoot(u) ? 'is-claim' : '', mini ? 'collapsed' : '', open ? 'peek' : '',
+          const inCluster = (u.home && liveIds.has(u.home)) || holding.has(u.id);
+          const cls = ['unit', isRoot(u) ? 'is-claim' : '', inCluster ? 'clustered' : 'solo', mini ? 'collapsed' : '', open ? 'peek' : '',
             u.origin === 'model' ? 'is-model' : '', u.id === selectedId ? 'is-selected' : '', inFocus(u) ? '' : 'dim'].join(' ');
           return (
             <div key={u.id} className={cls} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}

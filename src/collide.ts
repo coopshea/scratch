@@ -50,8 +50,9 @@ export type GroupNode = BoxNode & { group: string | null; order: number };
 /**
  * d3 force: keep clusters distinct. Each group's bounding box pushes away from every other group's box
  * until at least `gap` separates them, moving whole groups so their shape is kept. Ungrouped nodes are ignored.
+ * `aspect` (view width / height) biases the direction: a wide view spreads clusters sideways, a tall one downward.
  */
-export function separateGroups(gap = 48, strength = 0.5) {
+export function separateGroups(gap = 48, strength = 0.5, aspect: () => number = () => 1) {
   let nodes: GroupNode[] = [];
   const force = (alpha: number) => {
     const groups = new Map<string, GroupNode[]>();
@@ -69,7 +70,7 @@ export function separateGroups(gap = 48, strength = 0.5) {
         const ox = (a.w + b.w) / 2 + gap - Math.abs(dx), oy = (a.h + b.h) / 2 + gap - Math.abs(dy);
         if (ox <= 0 || oy <= 0) continue;
         // Separate along the axis that needs the smaller move, so clusters slide apart rather than jump.
-        const [mx, my] = ox < oy ? [ox * (dx < 0 ? -1 : 1), 0] : [0, oy * (dy < 0 ? -1 : 1)];
+        const [mx, my] = ox / aspect() < oy ? [ox * (dx < 0 ? -1 : 1), 0] : [0, oy * (dy < 0 ? -1 : 1)];
         for (const n of a.ns) { n.vx! -= (mx / 2) * k; n.vy! -= (my / 2) * k; }
         for (const n of b.ns) { n.vx! += (mx / 2) * k; n.vy! += (my / 2) * k; }
       }

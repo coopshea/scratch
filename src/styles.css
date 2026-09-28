@@ -129,6 +129,17 @@ select:focus { outline: none; text-decoration: underline; }
 .graph-edges { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
 .graph-edges line { stroke: var(--pencil); stroke-width: .8; transition: opacity .2s; }
 .dim { opacity: .28; }
+/* Talk hierarchy: roots are headings, pieces are softer and smaller, unsorted material is muted. */
+.graph-world .unit .lbl { font-size: 13px; }
+.graph-world .unit .kind { font-size: 10px; opacity: .8; }
+.graph-world .unit.is-claim .lbl { font-size: 17px; }
+.graph-world .unit.clustered { background: var(--paper-2); }
+.graph-world .unit.solo { opacity: .55; }
+.graph-world .unit.solo:hover, .graph-world .unit.solo.is-selected { opacity: 1; }
+.graph-edges .hull { fill: var(--paper-2); stroke: var(--rule); stroke-width: .6; transition: stroke .2s, opacity .2s; }
+.graph-edges .hull.on { stroke: var(--rule-strong); }
+.graph-edges .hull.dim { opacity: .5; }
+.graph-edges line { opacity: .6; }
 /* Collapsed pieces: a dot says there is more; hovering the cluster lists them above its root. */
 .graph-world .unit.collapsed { width: 10px; height: 10px; padding: 0; border-radius: 50%; background: var(--c); opacity: .35; }
 .graph-world .unit.collapsed.peek { opacity: .9; }
