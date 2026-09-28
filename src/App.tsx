@@ -28,7 +28,8 @@ function Title({ value, onSave }: { value: string; onSave: (t: string) => void }
   );
 }
 
-export function App() {
+/** `account` is the signed-in writer's menu on the hosted site; absent locally. */
+export function App({ account }: { account?: React.ReactNode } = {}) {
   const [project, setProject] = useState<Project | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -199,6 +200,7 @@ export function App() {
           <a className="stage" href={`/api/p/${slug}/export.md`} download title="Download clean markdown">export</a>
           <button className="stage" onClick={copyExport} title="Copy clean markdown">{copied ? 'copied' : 'copy'}</button>
           <button className={`stage ${history ? 'on' : ''}`} onClick={toggleHistory}>history</button>
+          {account}
         </header>
         {body}
       </div>

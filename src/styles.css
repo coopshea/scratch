@@ -299,3 +299,16 @@ a.stage { text-decoration: none; }
 .picker-menu li.hl, .picker-menu li:hover { background: rgba(47, 39, 29, .07); color: var(--ink); }
 .picker-menu li.top { color: var(--ink); }
 .picker-menu li.top::after { content: ' ⇥'; color: var(--pencil); font-variant: normal; }
+
+/* Hosted: sign-in and account page. */
+.gate { max-width: 440px; margin: 10vh auto 0; padding: 0 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.gate h1 { font-weight: 400; margin: 0; }
+.gate p { color: var(--ink-soft); margin: 0 0 12px; }
+.account-menu { display: inline-flex; align-items: center; gap: 16px; align-self: center; }
+.account { max-width: 560px; margin: 0 auto; padding: 32px 16px; }
+.account h1 { font-weight: 400; margin: 0 0 4px; }
+.account h2 { font-weight: 400; font-size: 18px; margin: 28px 0 6px; }
+.account p { margin: 0 0 8px; }
+.account .hint { font-size: 14px; color: var(--ink-soft); }
+.account form { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+.account input { flex: 1; min-width: 200px; font: 15px var(--serif); padding: 4px 8px; border: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink); }

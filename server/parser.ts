@@ -42,7 +42,7 @@ export class ParseFailure extends Error {}
 
 /** Turn SDK errors into one readable sentence for the UI. */
 export function describeError(e: unknown): string {
-  if (e instanceof Anthropic.AuthenticationError) return 'The API key was rejected. Check ANTHROPIC_API_KEY in .env.';
+  if (e instanceof Anthropic.AuthenticationError) return 'The API key was rejected. Check the key in .env, or on your account page.';
   if (e instanceof Anthropic.RateLimitError) return 'Rate limited by the API. Wait a moment and retry.';
   if (e instanceof Anthropic.APIError) {
     const inner = (e.error as { error?: { message?: string } } | undefined)?.error?.message;
@@ -73,6 +73,7 @@ export async function parseBlurt(
   blurt: string,
   vocab: string[],
   roots: { id: string; type: string; label: string }[],
+  apiKey?: string, // the writer's own key on the hosted site; otherwise the server's
 ): Promise<ParsedUnit[]> {
   if (process.env.PARSER === 'offline') return offlineParse(blurt);
   const context = [
@@ -81,13 +82,13 @@ export async function parseBlurt(
     `<blurt>\n${blurt}\n</blurt>`,
   ].join('\n\n');
 
-  client ??= new Anthropic(); // ANTHROPIC_API_KEY from .env
+  const api = apiKey ? new Anthropic({ apiKey }) : (client ??= new Anthropic()); // ANTHROPIC_API_KEY from .env
   // Tuning knobs for comparing models (npm run compare:parse); defaults are the shipped settings.
   const model = process.env.PARSER_MODEL ?? 'claude-opus-5-5';
   // Low effort: measured on the CAD talk, Claude Opus 5.5 at low matched or beat higher settings in half the time.
   const effort = process.env.PARSER_EFFORT ?? 'low'; // 'none' runs without thinking (Haiku 4.5 has no effort levels)
   const started = Date.now();
-  const response = await client.beta.messages.parse({
+  const response = await api.beta.messages.parse({
     model,
     max_tokens: 16000,
     // Refusal fallbacks: a false-positive safety decline retries on another model instead of failing the parse.

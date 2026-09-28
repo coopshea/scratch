@@ -13,6 +13,18 @@ Open http://localhost:5178. Add `?p=<slug>` to switch projects; the default is `
 
 `npm run dev:offline` runs on port 5179 with a sentence-splitting stand-in for the parser, for UI work without API calls.
 
+## Hosting
+
+The hosted site is the same app with sign-in turned on. It turns on when `CLERK_SECRET_KEY` is set; without it, everything below works as a local tool.
+
+- **Sign-in:** Clerk. The server checks the session on every `/api` and `/projects` request.
+- **Accounts:** Postgres, one `accounts` table (`server/accounts.ts`). Only the first `MAX_ACCOUNTS` (50) writers are admitted. Each gets `FREE_PARSES` (2) parses on the server's key, then adds their own Anthropic key on the account page (`?account`). Keys are stored encrypted with `KEY_ENCRYPTION_SECRET` and never sent back to the browser.
+- **Writing:** still files, one folder per writer at `$SCRATCH_DATA/u/<clerk user id>/`, on a Railway volume.
+- **Limits:** 600 requests a minute per address, 300 per writer, 6 parses a minute and 100 a day per writer, 60 uploads and 60 new documents an hour, 20,000 characters per blurt.
+- **Off when hosted:** Readwise, because its token is shared.
+
+`npm run build` then `npm start` runs the production server. It refuses to start without `CLERK_SECRET_KEY` and `DATABASE_URL`.
+
 ## Keys
 
 Keys live in `.env`, which is gitignored. Start from the template:

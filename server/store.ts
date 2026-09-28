@@ -1,12 +1,24 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Blurt, Project, ProjectMeta, ProjectSummary, Unit } from '../shared/types.ts';
 import { emptyBoard, type Board, type StructureDef } from '../shared/structures.ts';
 
 /** Where writing lives. Tests point SCRATCH_DATA at a temporary folder. */
 export const DATA_ROOT = path.resolve(process.env.SCRATCH_DATA || 'projects');
-const ROOT = DATA_ROOT;
+
+/**
+ * Hosted, each account's writing lives in its own folder under DATA_ROOT/u. A request runs inside its writer's
+ * folder, so every function below reads and writes only that writer's documents. Local runs use DATA_ROOT itself.
+ */
+const space = new AsyncLocalStorage<string>();
+export const inSpace = <T>(root: string, fn: () => T) => space.run(root, fn);
+export const userRoot = (userId: string) => {
+  if (!/^[A-Za-z0-9_]{1,64}$/.test(userId)) throw new HttpError(400, 'Invalid user id');
+  return path.join(DATA_ROOT, 'u', userId);
+};
+export const root = () => space.getStore() ?? DATA_ROOT;
 
 export function assertSlug(slug: string) {
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(slug)) throw new HttpError(400, 'Invalid project slug');
@@ -18,7 +30,7 @@ export class HttpError extends Error {
 
 export function projectDir(slug: string) {
   assertSlug(slug);
-  const dir = path.join(ROOT, slug);
+  const dir = path.join(root(), slug);
   fs.mkdirSync(path.join(dir, 'blurts'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'assets'), { recursive: true });
   return dir;
@@ -35,9 +47,10 @@ function writeAtomic(file: string, content: string) {
 // One write at a time per project, so rapid edits never interleave.
 const locks = new Map<string, Promise<unknown>>();
 export function withLock<T>(slug: string, fn: () => Promise<T> | T): Promise<T> {
-  const prev = locks.get(slug) ?? Promise.resolve();
+  const key = path.join(root(), slug);
+  const prev = locks.get(key) ?? Promise.resolve();
   const next = prev.then(fn, fn);
-  locks.set(slug, next.catch(() => undefined));
+  locks.set(key, next.catch(() => undefined));
   return next;
 }
 
@@ -118,9 +131,10 @@ export function loadProject(slug: string): Project {
 }
 
 export function listProjects(): ProjectSummary[] {
+  const ROOT = root();
   if (!fs.existsSync(ROOT)) return [];
   return fs.readdirSync(ROOT, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && /^[a-z0-9][a-z0-9-]{0,63}$/.test(d.name))
+    .filter((d) => d.isDirectory() && /^[a-z0-9][a-z0-9-]{0,63}$/.test(d.name) && !(ROOT === DATA_ROOT && d.name === 'u'))
     .map((d) => {
       const dir = path.join(ROOT, d.name);
       const units = readJson<Unit[]>(path.join(dir, 'units.json'), []).filter((u) => u.status !== 'cut');
@@ -148,13 +162,13 @@ export function saveAsset(slug: string, filename: string, body: Buffer) {
 }
 
 /** The writer's own outlines. Shared across all documents, so stored beside them rather than inside one. */
-const ARCHETYPES = path.join(ROOT, '_archetypes.json');
+const archetypesFile = () => path.join(root(), '_archetypes.json');
 export function readArchetypes(): StructureDef[] {
-  return fs.existsSync(ARCHETYPES) ? JSON.parse(fs.readFileSync(ARCHETYPES, 'utf8')) : [];
+  return fs.existsSync(archetypesFile()) ? JSON.parse(fs.readFileSync(archetypesFile(), 'utf8')) : [];
 }
 export function writeArchetypes(list: StructureDef[]) {
-  fs.mkdirSync(ROOT, { recursive: true });
-  writeAtomic(ARCHETYPES, JSON.stringify(list, null, 2) + '\n');
+  fs.mkdirSync(root(), { recursive: true });
+  writeAtomic(archetypesFile(), JSON.stringify(list, null, 2) + '\n');
 }
 
 /**
@@ -163,10 +177,10 @@ export function writeArchetypes(list: StructureDef[]) {
  */
 export function trashProject(slug: string) {
   assertSlug(slug);
-  const dir = path.join(ROOT, slug);
+  const dir = path.join(root(), slug);
   if (!fs.existsSync(dir)) throw new HttpError(404, 'Document not found');
   appendEvent(slug, 'human', 'project.delete', {});
-  const trash = path.join(ROOT, '.trash');
+  const trash = path.join(root(), '.trash');
   fs.mkdirSync(trash, { recursive: true });
   fs.renameSync(dir, path.join(trash, `${slug}--${new Date().toISOString().replace(/[:.]/g, '-')}`));
 }
