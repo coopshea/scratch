@@ -14,6 +14,8 @@ import { Talk } from './Talk.tsx';
 
 type Stage = 'talk' | 'structure' | 'draft';
 const STAGES: Stage[] = ['talk', 'structure', 'draft'];
+/** What the writer sees; the stage ids stay as they are in code, saved preferences and the event log. */
+const STAGE_NAME: Record<Stage, string> = { talk: 'spill', structure: 'shape', draft: 'draft' };
 
 const readPref = (k: string, d: string) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const writePref = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch { /* storage unavailable */ } };
@@ -193,12 +195,12 @@ export function App({ account }: { account?: React.ReactNode } = {}) {
               <span key={s} className="step">
                 {i > 0 && <span className="sep" aria-hidden>›</span>}
                 <button className={`stage ${s === stage ? 'on' : i < STAGES.indexOf(stage) ? 'past' : 'ahead'}`}
-                  aria-current={s === stage ? 'step' : undefined} onClick={() => setStage(s)}>{s}</button>
+                  aria-current={s === stage ? 'step' : undefined} onClick={() => setStage(s)}>{STAGE_NAME[s]}</button>
               </span>
             ))}
           </nav>
           {!history && stage !== 'draft' && (stage !== 'talk' || units.some((u) => u.status !== 'cut')) && (
-            <button className="link next" onClick={() => setStage(STAGES[STAGES.indexOf(stage) + 1])}>{STAGES[STAGES.indexOf(stage) + 1]} →</button>
+            <button className="link next" onClick={() => setStage(STAGES[STAGES.indexOf(stage) + 1])}>{STAGE_NAME[STAGES[STAGES.indexOf(stage) + 1]]} →</button>
           )}
           <span className="spacer" />
           {error && stage !== 'talk' && <span className="top-error" onClick={() => setError(null)}>{error}</span>}

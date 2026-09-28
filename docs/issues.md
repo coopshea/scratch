@@ -4,6 +4,16 @@ Open work, newest first. Delete an item when it ships; git history keeps the rec
 
 ## Open
 
+### Plain words for everything the writer sees
+**Added:** 2026-09-28 · **Priority:** part of the design process, before more people use the hosted site
+
+Internal words leak into the interface: blurt, parse, unit, cluster, talk, structure. Every name a writer sees should be a plain word they understand without explanation. Settle vocabulary as a design step, the same way layout is settled, and keep the code's internal names (talk/structure/draft, blurts, units) so nothing breaks.
+
+- **Decided:** the stages read **Spill → Shape → Draft**.
+- **Still open:** the parse button (candidates: "cut up", "sort into ideas"), the thing a writer spills (a dump, notes), units (ideas, which Draft already says), clusters (threads, piles), and a blurt that yielded nothing ("nothing to cut up here" instead of a second parse button).
+- **Considered and kept for later:** Dump → Sort → Write; Gather → Arrange → Write; Brainstorm → Outline → Write; S-words for the third stage (Stitch, Script, Set down); "blurt" and "word vomit".
+- Apply the chosen words everywhere at once: stage bar, buttons, errors, the account page, README.
+
 ### Red pen: one review pass over the draft
 **Added:** 2026-09-28 · **Priority:** later, after the core loop feels right
 
