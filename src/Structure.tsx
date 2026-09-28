@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation } from 'd3-force';
 import type { Unit } from '../shared/types.ts';
+import { isRoot } from '../shared/clusters.ts';
 import {
   STRUCTURES, SUPPORT_TITLE, reslot, support, type Board, type StructureDef, type StructureId,
 } from '../shared/structures.ts';
@@ -59,25 +60,54 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
 
   const nodeEls = useRef(new Map<string, HTMLDivElement>());
 
-  // Each level is at least an even share of the view, and grows to fit what is placed in it.
-  const { bandTop, bandHt, totalH } = useMemo(() => {
+  /**
+   * Placed rows are laid out, not simulated. Each cluster is one horizontal line: its root at the left, its pieces
+   * running to the right, wrapping under the first piece only when the row runs out of width. Each new cluster
+   * starts a new line, so a row grows downward cluster by cluster. A piece placed in the same row as its root
+   * rejoins that root's line; placed anywhere else, it stands on its own line with a thread back to its root.
+   */
+  const GAP_X = 18, GAP_Y = 10, LINE_GAP = 22, PAD_Y = 16, LEFT = LABEL_W + 30;
+  const { bandTop, bandHt, totalH, slots } = useMemo(() => {
     const base = Math.max(MIN_BAND, size.H / lanes.length);
-    const perRow = Math.max(1, Math.floor((size.W * LOCKED_MAX - LABEL_W - 30) / 200));
-    const stack = lanes.map(() => 0);
-    for (const u of live) {
-      const r = rootOf(u); const p = placedAt.get(r.id);
-      if (p) stack[p.lane] += (nodeEls.current.get(u.id)?.offsetHeight ?? 44) + 14;
-    }
-    const bandHt = stack.map((h) => Math.max(base, 24 + Math.ceil(h / perRow)));
-    const bandTop = bandHt.map((_, i) => bandHt.slice(0, i).reduce((a, b) => a + b, 0));
-    return { bandTop, bandHt, totalH: bandHt.reduce((a, b) => a + b, 0) };
+    const right = size.W * LOCKED_MAX;
+    const dims = (id: string) => ({ w: nodeEls.current.get(id)?.offsetWidth ?? 140, h: nodeEls.current.get(id)?.offsetHeight ?? 32 });
+    const local = lanes.map(() => new Map<string, { x: number; y: number }>());
+    const heights = lanes.map(() => base);
+    const byLane = lanes.map(() => [] as string[]);
+    for (const [id, p] of [...placedAt.entries()].sort((a, b) => a[1].order - b[1].order)) byLane[p.lane].push(id);
+    byLane.forEach((ids, li) => {
+      const here = new Set(ids);
+      let y = PAD_Y;
+      for (const id of ids) {
+        const u = byId.get(id);
+        if (u?.home && here.has(u.home)) continue; // travels on its root's line
+        const kids = live.filter((k) => k.home === id && (!placedAt.has(k.id) || here.has(k.id))).map((k) => k.id);
+        const root = dims(id);
+        local[li].set(id, { x: LEFT + root.w / 2, y: y + root.h / 2 });
+        const start = LEFT + root.w + GAP_X;
+        let x = start, lineTop = y, lineH = root.h;
+        for (const c of kids) {
+          const d = dims(c);
+          if (x > start && x + d.w > right) { lineTop += lineH + GAP_Y; x = start; lineH = 0; }
+          local[li].set(c, { x: x + d.w / 2, y: lineTop + d.h / 2 });
+          x += d.w + GAP_X; lineH = Math.max(lineH, d.h);
+        }
+        y = lineTop + lineH + LINE_GAP;
+      }
+      heights[li] = Math.max(base, y - LINE_GAP + PAD_Y);
+    });
+    const bandTop = heights.map((_, i) => heights.slice(0, i).reduce((a, b) => a + b, 0));
+    const slots = new Map<string, { x: number; y: number; band: [number, number] }>();
+    local.forEach((m, li) => m.forEach((p, id) => slots.set(id, { x: p.x, y: bandTop[li] + p.y, band: [bandTop[li], bandTop[li] + heights[li]] })));
+    return { bandTop, bandHt: heights, totalH: heights.reduce((a, b) => a + b, 0), slots };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lanes, live, placedAt, size.H, size.W]);
 
-  const edges = useMemo(() => live.filter((u) => u.home && byId.has(u.home) && !placedAt.has(u.id))
+  const edges = useMemo(() => live.filter((u) => u.home && byId.has(u.home) && !placedAt.has(u.id) && !placedAt.has(u.home))
     .map((u) => ({ key: `${u.home}-${u.id}`, source: u.home!, target: u.id })), [live, byId, placedAt]);
   /** Units pulled out of their cluster keep a faint thread back to their claim; it does not pull them. */
-  const threads = useMemo(() => live.filter((u) => u.home && byId.has(u.home) && placedAt.has(u.id))
+  const threads = useMemo(() => live.filter((u) => u.home && byId.has(u.home) && placedAt.has(u.id)
+      && placedAt.get(u.home)?.lane !== placedAt.get(u.id)!.lane)
     .map((u) => ({ key: `t-${u.home}-${u.id}`, a: u.home!, b: u.id })), [live, byId, placedAt]);
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
@@ -173,15 +203,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
   useLayoutEffect(() => {
     const s = sim.current; if (!s) return;
     const t = new Map<string, { x: number; y: number; placed: boolean; band?: [number, number] }>();
-    const slotX = new Map<number, number>();
-    const orderedPlaced = [...placedAt.entries()].sort((a, b) => a[1].lane - b[1].lane || a[1].order - b[1].order);
-    for (const [id, p] of orderedPlaced) {
-      const x0 = slotX.get(p.lane) ?? LABEL_W + 30;
-      const w = nodeEls.current.get(id)?.offsetWidth ?? 140;
-      slotX.set(p.lane, x0 + w + 90);
-      const h = nodeEls.current.get(id)?.offsetHeight ?? 40;
-      t.set(id, { x: x0 + w / 2, y: bandTop[p.lane] + h / 2 + 14, placed: true, band: [bandTop[p.lane], bandTop[p.lane] + bandHt[p.lane]] });
-    }
+    for (const [id, p] of slots) t.set(id, { x: p.x, y: p.y, placed: true, band: p.band });
     const pool = { x: size.W * 0.78, y: totalH / 2, placed: false };
     for (const u of live) if (!t.has(u.id) && rootOf(u).id === u.id) t.set(u.id, pool);
     for (const u of live) {
@@ -199,9 +221,9 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
         const tt = t.get(u.id)!;
         n = { id: u.id, w: 0, h: 0, claim: false, x: tt.x + (Math.random() - 0.5) * 60, y: tt.y + (Math.random() - 0.5) * 60 };
       }
-      n.w = el?.offsetWidth ?? 120; n.h = el?.offsetHeight ?? 24; n.claim = u.type === 'claim';
-      const tt = t.get(u.id)!;
-      n.fy = placedAt.has(u.id) ? tt.y : null;
+      n.w = el?.offsetWidth ?? 120; n.h = el?.offsetHeight ?? 24; n.claim = isRoot(u);
+      const slot = slots.get(u.id);
+      if (u.id !== dragging.current) { n.fx = slot ? slot.x : null; n.fy = slot ? slot.y : null; }
       return n;
     });
     simNodes.current = new Map(next.map((n) => [n.id, n]));
@@ -220,7 +242,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
       s.alpha(Math.max(s.alpha(), 0.6)).restart();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, edges, placedAt, size, bandTop, bandHt, poolX, totalH]);
+  }, [live, edges, placedAt, size, bandTop, bandHt, poolX, totalH, slots]);
 
   const canvasPoint = (e: { clientX: number; clientY: number }) => {
     const r = boxRef.current!.getBoundingClientRect();
@@ -261,7 +283,8 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
       dragging.current = null;
       setHoverBand(null);
       setDragOn(false);
-      n.fx = null; n.fy = placedAt.has(id) ? n.fy : null;
+      const slot = slots.get(id);
+      n.fx = slot ? slot.x : null; n.fy = slot ? slot.y : null;
       sim.current!.alphaTarget(0);
       if (!moved) { onSelect(id); return; }
       if (readOnly) return;
@@ -380,14 +403,14 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
             const s = u.type === 'claim' ? support(u, live) : null;
             const at = placedAt.get(u.id);
             const offType = at !== undefined && !lanes[at.lane].accepts.includes(u.type);
-            const cls = ['unit', u.type === 'claim' ? 'is-claim' : '', placedAt.has(r.id) ? 'is-placed' : '', offType ? 'off-type' : '',
+            const cls = ['unit', isRoot(u) ? 'is-claim' : '', placedAt.has(r.id) ? 'is-placed' : '', offType ? 'off-type' : '',
               u.id === selectedId ? 'is-selected' : '', dim ? 'dim' : ''].join(' ');
             return (
               <div key={u.id} className={cls} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}
                 title={offType ? `${lanes[at!.lane].name} usually holds: ${lanes[at!.lane].accepts.join(', ')}` : undefined}
                 ref={(el) => { if (el) nodeEls.current.set(u.id, el); else nodeEls.current.delete(u.id); }}
                 onPointerDown={(e) => press(e, u.id)}>
-                {u.type !== 'claim' && <span className="kind">{u.type}</span>}
+                {!(u.type === 'claim' && !u.home) && <span className="kind">{u.type}</span>}
                 <span className="lbl">
                   {s && <span className={`support s-${s}`} title={SUPPORT_TITLE[s]}>{MARK[s]} </span>}
                   {u.label}
