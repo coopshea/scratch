@@ -54,7 +54,7 @@ export function Gate() {
 function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; menu: React.ReactNode }) {
   const [key, setKey] = useState('');
   const [rw, setRw] = useState('');
-  const [amount, setAmount] = useState('5');
+  const [amount, setAmount] = useState('');
   const [error, setError] = useState<string | null>(null);
   const a = me.account;
   const { pricing } = me;
@@ -62,7 +62,7 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
   const paid = new URLSearchParams(location.search).get('paid');
   const [waiting, setWaiting] = useState(!!paid && paid !== 'donation');
 
-  const cents = Math.round(Number(amount) * 100);
+  const cents = amount.trim() ? Math.round(Number(amount) * 100) : NaN;
   const valid = Number.isFinite(cents) && cents >= pricing.minCents && cents <= pricing.maxCents;
   const net = valid ? Math.max(0, cents * (1 - pricing.fee.percent / 100) - pricing.fee.cents) * 10_000 : 0;
   // A typical parse is about 8 cents at Anthropic's price.
@@ -125,16 +125,20 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
             {me.billing && (
               <>
                 <p className="buy">
-                  <label>$<input className="amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
+                  <label>$<input className="amount" inputMode="decimal" placeholder="amount" value={amount} onChange={(e) => setAmount(e.target.value)} /></label>
                   <button className="stage" disabled={!valid} onClick={() => pay('topup')}>add once</button>
                   {a.subscribed
                     ? <button className="stage" onClick={() => billing.portal().catch((e) => setError(e.message))}>manage monthly</button>
                     : <button className="stage" disabled={!valid} onClick={() => pay('subscription')}>add monthly</button>}
                 </p>
                 <p className="hint">
-                  {valid
-                    ? <>Adds {dollars(net)} after Stripe's fee, about {parses} {parses === 1 ? 'parse' : 'parses'}.</>
-                    : <>Pick ${pricing.minCents / 100} to ${pricing.maxCents / 100}.</>}
+                  Stripe, the payment processor, keeps {pricing.fee.percent}% + {pricing.fee.cents}¢ of every payment, and the
+                  rest becomes your balance. Because part of the fee is fixed, it's a bigger share of small payments.
+                  {' '}{valid
+                    ? <>Paying ${(cents / 100).toFixed(2)} adds {dollars(net)}, about {parses} {parses === 1 ? 'parse' : 'parses'}.</>
+                    : amount.trim()
+                      ? <>Enter ${pricing.minCents / 100} to ${pricing.maxCents / 100}.</>
+                      : null}
                 </p>
               </>
             )}
