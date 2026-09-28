@@ -108,9 +108,8 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
         <p>{a.email}</p>
 
         <h2>Parses</h2>
-        {me.unlimited ? (
-          <p>Unlimited. You're an owner of this site.</p>
-        ) : (
+        {me.unlimited && <p>Unlimited: you're an owner of this site, so your parses don't draw on the balance below.</p>}
+        {(
           <>
             <p>
               {freeLeft > 0 && <>{freeLeft} free {freeLeft === 1 ? 'parse' : 'parses'} left · </>}
@@ -142,7 +141,7 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
           </>
         )}
 
-        {me.billing && !me.unlimited && (
+        {me.billing && (
           <>
             <h2>A ream of paper</h2>
             <p className="hint">If Scratch helps your writing, you can buy me a ream of paper. It's a donation, separate from your balance.</p>
