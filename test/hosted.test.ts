@@ -7,7 +7,8 @@ import { tempDataDir } from './helpers.ts';
 // The hosted site with a stand-in for Clerk: the signed-in writer is whoever the x-test-user header names.
 process.env.SCRATCH_DATA = tempDataDir();
 process.env.PARSER = 'offline';
-process.env.MAX_ACCOUNTS = '3';
+process.env.MAX_ACCOUNTS = '4';
+process.env.ADMIN_EMAILS = 'Owner@example.com';
 process.env.KEY_ENCRYPTION_SECRET = crypto.randomBytes(32).toString('base64');
 delete process.env.READWISE_TOKEN;
 
@@ -55,7 +56,8 @@ describe('hosted: sign-in and accounts', () => {
   });
 
   it('admits only MAX_ACCOUNTS writers', async () => {
-    expect((await as('carol').get('/api/me')).status).toBe(200); // alice, bob, carol
+    expect((await as('carol').get('/api/me')).status).toBe(200);
+    expect((await as('owner').get('/api/me')).status).toBe(200); // alice, bob, carol, owner
     const dave = await as('dave').get('/api/me');
     expect(dave.status).toBe(403);
     expect(dave.body.error).toMatch(/full/);
@@ -98,6 +100,18 @@ describe('hosted: free parses and own keys', () => {
   it('keeps Readwise off, since its token is shared', async () => {
     const res = await as('alice').post('/api/p/scratch/readwise/search').send({ query: 'turbines' });
     expect(res.body.enabled).toBe(false);
+  });
+});
+
+describe('hosted: owners', () => {
+  it('exempts ADMIN_EMAILS from rate limits, the free-parse quota and the blurt cap', async () => {
+    expect((await as('owner').get('/api/me')).body.unlimited).toBe(true);
+    const codes: number[] = [];
+    for (let i = 0; i < 10; i++) codes.push((await as('owner').post('/api/p/scratch/blurts').send({ text: `Owner idea ${i}.` })).status);
+    expect(codes.every((c) => c === 200)).toBe(true);
+    expect((await as('owner').get('/api/me')).body.account.freeParsesUsed).toBe(0);
+    expect((await as('owner').post('/api/p/scratch/blurts').send({ text: 'y. '.repeat(8_000) })).status).toBe(200);
+    expect((await as('carol').get('/api/me')).body.unlimited).toBe(false);
   });
 });
 

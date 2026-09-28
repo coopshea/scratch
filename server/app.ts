@@ -31,6 +31,10 @@ export type Hosted = {
 
 const BLURT_MAX = 20_000; // characters; hosted only, to bound what one parse can cost
 
+/** The site's owners (ADMIN_EMAILS, comma-separated): no per-writer rate limits, no free-parse quota, no blurt cap. */
+const admins = () => new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
+const isAdmin = (a?: Account) => !!a?.email && admins().has(a.email.toLowerCase());
+
 /** The whole API, without the dev server, so tests can call it directly. */
 export function createApp(hosted?: Hosted): Express {
   const app = express();
@@ -45,7 +49,7 @@ export function createApp(hosted?: Hosted): Express {
     app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
     const limit = (windowMs: number, limit: number, message: string, byUser = true) => rateLimit({
       windowMs, limit, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: message },
-      ...(byUser ? { keyGenerator: (_req: Request, res: Response) => accountOf(res)!.id } : {}),
+      ...(byUser ? { keyGenerator: (_req: Request, res: Response) => accountOf(res)!.id, skip: (_req: Request, res: Response) => isAdmin(accountOf(res)) } : {}),
     });
     // Before sign-in is checked: bounds how hard any one address can hit the server at all.
     app.use(['/api', '/projects'], limit(60_000, 600, 'Too many requests. Wait a minute.', false));
@@ -75,7 +79,7 @@ export function createApp(hosted?: Hosted): Express {
 
   app.get('/api/me', wrap((_req, res) => {
     const account = accountOf(res);
-    res.json(account ? { hosted: true, account, freeParses: FREE_PARSES } : { hosted: false });
+    res.json(account ? { hosted: true, account, freeParses: FREE_PARSES, unlimited: isAdmin(account) } : { hosted: false });
   }));
 
   /** The writer's own Anthropic key, for parses after the free ones. Stored encrypted; only the last 4 characters come back. */
@@ -223,7 +227,7 @@ export function createApp(hosted?: Hosted): Express {
   async function runParse(slug: string, blurt: Blurt, account?: Account) {
     let apiKey: string | undefined;
     let free = false;
-    if (account && hosted) {
+    if (account && hosted && !isAdmin(account)) {
       const paid = await hosted.accounts.takeParse(account.id);
       if (!paid) throw new HttpError(402, `You've used your ${FREE_PARSES} free parses. Add your own Anthropic API key on your account page to keep going.`);
       ({ apiKey, free } = paid);
@@ -299,7 +303,7 @@ export function createApp(hosted?: Hosted): Express {
     const slug = slugOf(req);
     const text = String(req.body?.text ?? '');
     if (!text.trim()) throw new HttpError(400, 'Blurt is empty');
-    if (hosted && text.length > BLURT_MAX) throw new HttpError(413, `Blurts are limited to ${BLURT_MAX.toLocaleString()} characters. Split it and try again.`);
+    if (hosted && !isAdmin(accountOf(res)) && text.length > BLURT_MAX) throw new HttpError(413, `Blurts are limited to ${BLURT_MAX.toLocaleString()} characters. Split it and try again.`);
     const blurt = saveBlurt(slug, text);
     appendEvent(slug, 'human', 'blurt.create', { id: blurt.id, text });
     try {

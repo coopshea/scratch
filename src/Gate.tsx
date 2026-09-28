@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { SignIn, useAuth, UserButton } from '@clerk/react';
 import { App } from './App.tsx';
 
-type Me = { hosted: true; account: { email: string | null; freeParsesUsed: number; hasOwnKey: boolean; keyHint: string | null }; freeParses: number };
+type Me = { hosted: true; account: { email: string | null; freeParsesUsed: number; hasOwnKey: boolean; keyHint: string | null }; freeParses: number; unlimited?: boolean };
 
 const onAccountPage = () => new URLSearchParams(location.search).has('account');
 
@@ -71,7 +71,9 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
         <p>{a.email}</p>
         <h2>Parses</h2>
         <p>
-          {a.hasOwnKey
+          {me.unlimited
+            ? <>Unlimited: you're an owner of this site, so parses use the site's key with no limits.</>
+            : a.hasOwnKey
             ? <>Parses use your own Anthropic key, ending <code>{a.keyHint}</code>.</>
             : <>{left} of {me.freeParses} free parses left. After that, add your own Anthropic API key to keep parsing.</>}
         </p>
