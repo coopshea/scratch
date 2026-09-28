@@ -19,8 +19,8 @@ export interface Accounts {
   setKey(id: string, key: string | null): Promise<void>;
 }
 
-export const MAX_ACCOUNTS = Number(process.env.MAX_ACCOUNTS ?? 50);
-export const FREE_PARSES = Number(process.env.FREE_PARSES ?? 2);
+export const MAX_ACCOUNTS = Number(process.env.MAX_ACCOUNTS || 50);
+export const FREE_PARSES = Number(process.env.FREE_PARSES || 2);
 
 // API keys are stored encrypted (AES-256-GCM) with KEY_ENCRYPTION_SECRET, never returned to the browser.
 function secret() {
