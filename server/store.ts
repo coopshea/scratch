@@ -4,7 +4,9 @@ import crypto from 'node:crypto';
 import type { Blurt, Project, ProjectMeta, ProjectSummary, Unit } from '../shared/types.ts';
 import { emptyBoard, type Board, type StructureDef } from '../shared/structures.ts';
 
-const ROOT = path.resolve('projects');
+/** Where writing lives. Tests point SCRATCH_DATA at a temporary folder. */
+export const DATA_ROOT = path.resolve(process.env.SCRATCH_DATA || 'projects');
+const ROOT = DATA_ROOT;
 
 export function assertSlug(slug: string) {
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(slug)) throw new HttpError(400, 'Invalid project slug');

@@ -32,6 +32,14 @@ npm run check:readwise
 
 Never paste a key into `.env.example`, an issue, or a commit. If a key leaks, revoke it and make a new one: Anthropic keys at the console link above, Readwise tokens at the access-token page.
 
+## Tests
+
+```bash
+npm test
+```
+
+Vitest runs the suite in under a second, and CI runs it with the typecheck on every PR. Tests never call the Anthropic or Readwise APIs, and they never touch `projects/`. The parser runs offline or as a stand-in, Readwise answers come from recorded responses, and each test file writes to its own temporary folder (`SCRATCH_DATA`). Most tests guard a rule from `CLAUDE.md`: cuts are verbatim, labels stay within limits, every change is logged with its author, sourced is not verified, and keys never reach the repo. `npm run test:watch` reruns tests on save.
+
 ## Stack, drop-in wherever possible
 
 | Piece | Tool |

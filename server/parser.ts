@@ -3,7 +3,8 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
 import { UNIT_TYPES } from '../shared/types.ts';
 
-const client = new Anthropic(); // ANTHROPIC_API_KEY from .env
+// Created on first real parse, so importing this file never needs a key (offline mode, tests).
+let client: Anthropic | null = null;
 
 const ParsedUnit = z.object({
   key: z.string().describe('Short unique key within this response, e.g. c1, c2 for claims, u1, u2 for others'),
@@ -78,6 +79,7 @@ export async function parseBlurt(
     `<blurt>\n${blurt}\n</blurt>`,
   ].join('\n\n');
 
+  client ??= new Anthropic(); // ANTHROPIC_API_KEY from .env
   const response = await client.beta.messages.parse({
     model: 'claude-opus-5',
     max_tokens: 16000,
