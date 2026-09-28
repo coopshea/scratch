@@ -147,8 +147,8 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
 
         {me.billing && (
           <>
-            <h2>A ream of paper</h2>
-            <p className="hint">If Scratch helps your writing, you can buy me a ream of paper. It's a donation, separate from your balance.</p>
+            <p className="donate">I don't drink coffee. But if you liked using this, please consider donating me a ream of paper.</p>
+            <p className="hint">This is not for usage, just appreciation.</p>
             {paid === 'donation' && <p>Thank you for the paper.</p>}
             <p><button className="stage" onClick={() => billing.checkout('donation').catch((e) => setError(e.message))}>
               donate ${me.pricing.donationCents / 100}</button></p>

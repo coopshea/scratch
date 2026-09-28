@@ -315,3 +315,4 @@ a.stage { text-decoration: none; }
 .account .buy { display: flex; gap: 24px; }
 .account .buy { align-items: baseline; }
 .account input.amount { flex: none; width: 5em; min-width: 0; margin-left: 2px; }
+.account .donate { margin-top: 28px; }
