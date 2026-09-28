@@ -3,8 +3,9 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import fs from 'node:fs';
 import path from 'node:path';
-import { checkKeyShape, FREE_PARSES, MAX_ACCOUNTS, PACK_PARSES, PRO_MONTHLY_PARSES, type Account, type Accounts, type Paid } from './accounts.ts';
-import type { Billing } from './billing.ts';
+import { checkKeyShape, FREE_PARSES, MAX_ACCOUNTS, type Account, type Accounts, type Paid } from './accounts.ts';
+import { DONATION_CENTS, MAX_CENTS, MIN_CENTS, STRIPE_FEE, type Billing } from './billing.ts';
+import type { Usage } from './parser.ts';
 import { describeError, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
 import {
   appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
@@ -36,6 +37,9 @@ export type Hosted = {
 // output ceiling and fail anyway; it also bounds what one parse costs (roughly 2 to 20 cents).
 export const BLURT_MAX = 14_000;
 const SAVE_MAX = 200_000; // not even saved beyond this
+
+/** Parses on the site's key are charged at Anthropic's price times this. 1: the site runs at cost. */
+export const USAGE_MARKUP = Number(process.env.USAGE_MARKUP || 1);
 
 /** Out of parses. The response carries `buy` so the page can point to the account page. */
 class OutOfParses extends HttpError {
@@ -102,19 +106,24 @@ export function createApp(hosted?: Hosted): Express {
     const account = accountOf(res);
     res.json(account ? {
       hosted: true, account, unlimited: isAdmin(account),
-      offers: hosted?.billing?.offers ?? { pack: false, subscription: false },
-      limits: { freeParses: FREE_PARSES, packParses: PACK_PARSES, monthlyParses: PRO_MONTHLY_PARSES },
+      billing: !!hosted?.billing,
+      pricing: { freeParses: FREE_PARSES, markup: USAGE_MARKUP, minCents: MIN_CENTS, maxCents: MAX_CENTS, fee: STRIPE_FEE, donationCents: DONATION_CENTS },
     } : { hosted: false });
   }));
 
-  /** Stripe Checkout for a block of parses or a subscription. The page redirects to the returned url. */
+  /** Stripe Checkout for a top-up or a monthly subscription for an amount the writer picks, or the fixed donation. */
   app.post('/api/billing/checkout', wrap(async (req, res) => {
     const account = accountOf(res);
     if (!account || !hosted?.billing) throw new HttpError(404, 'Billing is not set up');
-    const what = req.body?.what === 'subscription' ? 'subscription' : 'pack';
-    // Already subscribed: Stripe's billing page, not a second subscription.
-    if (what === 'subscription' && account.pro) return res.json({ url: await hosted.billing.portalUrl(account, origin(req)) });
-    res.json({ url: await hosted.billing.checkoutUrl(account, origin(req), what) });
+    if (req.body?.what === 'donation') return res.json({ url: await hosted.billing.checkoutUrl(account, origin(req), 'donation', DONATION_CENTS) });
+    const what = req.body?.what === 'subscription' ? 'subscription' : 'topup';
+    const cents = Math.round(Number(req.body?.cents));
+    if (!Number.isFinite(cents) || cents < MIN_CENTS || cents > MAX_CENTS) {
+      throw new HttpError(400, `Pick an amount from $${MIN_CENTS / 100} to $${MAX_CENTS / 100}`);
+    }
+    // Already subscribed: change or cancel on Stripe's billing page, not a second subscription.
+    if (what === 'subscription' && account.subscribed) return res.json({ url: await hosted.billing.portalUrl(account, origin(req)) });
+    res.json({ url: await hosted.billing.checkoutUrl(account, origin(req), what, cents) });
   }));
 
   app.post('/api/billing/portal', wrap(async (req, res) => {
@@ -265,8 +274,8 @@ export function createApp(hosted?: Hosted): Express {
   }));
 
   /**
-   * Hosted, a parse is paid for by a free try, the subscription, a bought parse or the writer's own key
-   * (accounts.ts). A failed parse gives back what it spent.
+   * Hosted, a parse is paid for by a free parse, the prepaid balance or the writer's own key (accounts.ts).
+   * The balance is charged what the parse cost, after it succeeds; a failed parse gives back a free parse.
    */
   async function runParse(slug: string, blurt: Blurt, account?: Account) {
     let paid: Paid | undefined;
@@ -275,26 +284,29 @@ export function createApp(hosted?: Hosted): Express {
       const got = await hosted.accounts.takeParse(account.id);
       if ('denied' in got) {
         throw new OutOfParses(hosted.billing
-          ? 'Out of parses. Buy more or add your own Anthropic key on your account page. Your blurt is saved.'
+          ? 'Out of parses. Add money or your own Anthropic key on your account page. Your blurt is saved.'
           : 'Out of parses. Add your own Anthropic key on your account page. Your blurt is saved.', true);
       }
       paid = got;
     }
+    let usage: Usage | undefined;
     try {
-      return await parseInto(slug, blurt, paid?.apiKey);
+      const units = await parseInto(slug, blurt, paid?.apiKey, (u) => { usage = u; });
+      if (paid?.kind === 'balance' && usage) await hosted!.accounts.charge(account!.id, usage.usd * USAGE_MARKUP * 1e6);
+      return units;
     } catch (e) {
       if (paid) await hosted!.accounts.refundParse(account!.id, paid.kind);
       throw e;
     }
   }
 
-  async function parseInto(slug: string, blurt: Blurt, apiKey?: string) {
+  async function parseInto(slug: string, blurt: Blurt, apiKey?: string, onUsage?: (u: Usage) => void) {
     const before = readUnits(slug);
     const live = before.filter((u) => u.status !== 'cut');
     const vocab = [...new Set(live.map((u) => u.label))];
     const roots = live.filter(isRoot).map((u) => ({ id: u.id, type: u.type, label: u.label }));
 
-    const parsed = await parseBlurt(blurt.text, vocab, roots, apiKey);
+    const parsed = await parseBlurt(blurt.text, vocab, roots, apiKey, onUsage);
 
     return withLock(slug, () => {
       const units = readUnits(slug);

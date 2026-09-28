@@ -40,6 +40,19 @@ Cover every substantive idea. Skip pure filler ("um, anyway, where was I"). Do n
 
 export class ParseFailure extends Error {}
 
+/** Tokens one parse used, and what they cost in US dollars at the model's list price. */
+export type Usage = { model: string; input: number; output: number; usd: number };
+
+// Dollars per million tokens (input, output), from Anthropic's price list.
+const PRICES: Record<string, [number, number]> = {
+  'claude-opus-5-5': [4, 20], 'claude-opus-5': [5, 25], 'claude-fable-5-1': [10, 50],
+  'claude-sonnet-5': [2, 10], 'claude-haiku-4-5': [1, 5],
+};
+export function usageOf(model: string, input: number, output: number): Usage {
+  const [i, o] = PRICES[model] ?? PRICES['claude-fable-5-1']; // an unknown model is priced high, never free
+  return { model, input, output, usd: (input * i + output * o) / 1e6 };
+}
+
 /** Turn SDK errors into one readable sentence for the UI. */
 export function describeError(e: unknown): string {
   if (e instanceof Anthropic.AuthenticationError) return 'The API key was rejected. Check the key in .env, or on your account page.';
@@ -74,8 +87,13 @@ export async function parseBlurt(
   vocab: string[],
   roots: { id: string; type: string; label: string }[],
   apiKey?: string, // the writer's own key on the hosted site; otherwise the server's
+  onUsage?: (u: Usage) => void, // what the parse cost, for metering the hosted site
 ): Promise<ParsedUnit[]> {
-  if (process.env.PARSER === 'offline') return offlineParse(blurt);
+  if (process.env.PARSER === 'offline') {
+    // No API call, but a stand-in cost so metering can be tested: roughly a real parse of this length.
+    onUsage?.(usageOf('claude-opus-5-5', 1500 + Math.ceil(blurt.length / 4), Math.ceil(blurt.length / 2)));
+    return offlineParse(blurt);
+  }
   const context = [
     vocab.length ? `Existing vocabulary:\n${vocab.map((v) => `- ${v}`).join('\n')}` : 'Existing vocabulary: none yet.',
     roots.length ? `Existing roots (id, type: label):\n${roots.map((r) => `- ${r.id}, ${r.type}: ${r.label}`).join('\n')}` : 'Existing roots: none yet.',
@@ -102,6 +120,7 @@ export async function parseBlurt(
     messages: [{ role: 'user', content: context }],
   });
   // Thinking is billed as output. The JSON itself is roughly its characters / 4, so the rest is reasoning.
+  onUsage?.(usageOf(model, response.usage.input_tokens, response.usage.output_tokens));
   const json = Math.round(JSON.stringify(response.parsed_output ?? '').length / 4);
   console.log(`parse: ${((Date.now() - started) / 1000).toFixed(1)}s, ${model} effort ${effort}, `
     + `in ${response.usage.input_tokens}, out ${response.usage.output_tokens} (~${json} answer, ~${Math.max(0, response.usage.output_tokens - json)} thinking)`);

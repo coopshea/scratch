@@ -55,9 +55,9 @@ export const archetypes = {
   remove: async (id: string) => { await fetch(`/api/archetypes/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
 };
 
-/** Hosted only: Stripe's own pages for buying parses and for managing a subscription. */
+/** Hosted only: Stripe's own pages for paying in and for managing a subscription. */
 export const billing = {
-  checkout: (what: 'pack' | 'subscription') => goTo('/api/billing/checkout', { what }),
+  checkout: (what: 'topup' | 'subscription' | 'donation', cents = 0) => goTo('/api/billing/checkout', { what, cents }),
   portal: () => goTo('/api/billing/portal'),
 };
 async function goTo(path: string, payload: object = {}) {

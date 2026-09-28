@@ -27,12 +27,12 @@ async function hosting(): Promise<Hosted | undefined> {
     console.warn('No DATABASE_URL: accounts are kept in memory and reset on restart.');
     accounts = new MemoryAccounts();
   }
-  // Paying through Stripe: a secret key, a webhook secret, and at least one price (a block of parses, a subscription).
-  const { STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PACK_PRICE_ID, STRIPE_SUBSCRIPTION_PRICE_ID } = process.env;
+  // Paying in through Stripe needs only the secret key and the webhook's signing secret; amounts are set per checkout.
+  const { STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET } = process.env;
   let billing;
-  if (STRIPE_SECRET_KEY && STRIPE_WEBHOOK_SECRET && (STRIPE_PACK_PRICE_ID || STRIPE_SUBSCRIPTION_PRICE_ID)) {
+  if (STRIPE_SECRET_KEY && STRIPE_WEBHOOK_SECRET) {
     const { StripeBilling } = await import('./billing.ts');
-    billing = new StripeBilling(accounts, STRIPE_SECRET_KEY, { pack: STRIPE_PACK_PRICE_ID, subscription: STRIPE_SUBSCRIPTION_PRICE_ID }, STRIPE_WEBHOOK_SECRET);
+    billing = new StripeBilling(accounts, STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET);
   } else console.warn('Stripe is not configured: writers bring their own key after the free parses.');
   return {
     billing,

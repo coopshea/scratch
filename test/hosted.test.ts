@@ -28,14 +28,13 @@ beforeAll(async () => {
   const { MemoryAccounts } = await import('../server/accounts.ts');
   const { StripeBilling } = await import('../server/billing.ts');
   accounts = new MemoryAccounts();
-  const stripe = new StripeBilling(accounts, 'sk_test_not_used', { pack: 'price_pack', subscription: 'price_sub' }, WHSEC);
+  const stripe = new StripeBilling(accounts, 'sk_test_not_used', WHSEC);
   app = createApp({
     userId: (req) => req.header('x-test-user') ?? null,
     email: async (id) => `${id}@example.com`,
     accounts,
     billing: {
-      offers: stripe.offers,
-      checkoutUrl: async (a, _origin, what) => `https://checkout.stripe.test/${what}/${a.id}`,
+      checkoutUrl: async (a, _origin, what, cents) => `https://checkout.stripe.test/${what}/${cents}/${a.id}`,
       portalUrl: async (a) => `https://billing.stripe.test/${a.id}`,
       webhook: (raw, sig) => stripe.webhook(raw, sig),
     },
@@ -135,7 +134,7 @@ describe('hosted: owners', () => {
   });
 });
 
-describe('hosted: buying parses through Stripe', () => {
+describe('hosted: paying in through Stripe', () => {
   const event = (id: string, type: string, object: object) => ({ id, object: 'event', type, data: { object } });
   const post = (e: object, header?: string) => {
     const { payload, header: good } = signed(e);
@@ -143,41 +142,68 @@ describe('hosted: buying parses through Stripe', () => {
   };
   const me = async () => (await as('erin').get('/api/me')).body;
   const parse = (text = 'An idea.') => as('erin').post('/api/p/scratch/blurts').send({ text });
-  const packPaid = (id: string) => event(id, 'checkout.session.completed',
-    { client_reference_id: 'erin', customer: 'cus_erin', mode: 'payment', payment_status: 'paid', metadata: { parses: '3' }, status: 'complete' });
+  const topUp = (id: string, cents: number) => event(id, 'checkout.session.completed',
+    { mode: 'payment', payment_status: 'paid', amount_total: cents, metadata: { account: 'erin', kind: 'topup' }, customer: 'cus_erin', status: 'complete' });
+  // $5 less Stripe's 2.9% + 30¢, in micro-dollars.
+  const FIVE_NET = Math.round((500 * 0.971 - 30) * 10_000);
 
-  it('offers a block of parses and a subscription', async () => {
-    expect((await me()).offers).toEqual({ pack: true, subscription: true });
-    expect((await as('erin').post('/api/billing/checkout').send({ what: 'pack' })).body.url).toBe('https://checkout.stripe.test/pack/erin');
-    expect((await as('erin').post('/api/billing/checkout').send({ what: 'subscription' })).body.url).toBe('https://checkout.stripe.test/subscription/erin');
+  it('opens checkout for an amount the writer picks, from $1', async () => {
+    const ok = await as('erin').post('/api/billing/checkout').send({ what: 'topup', cents: 500 });
+    expect(ok.body.url).toBe('https://checkout.stripe.test/topup/500/erin');
+    expect((await as('erin').post('/api/billing/checkout').send({ what: 'subscription', cents: 100 })).body.url).toBe('https://checkout.stripe.test/subscription/100/erin');
+    expect((await as('erin').post('/api/billing/checkout').send({ what: 'topup', cents: 99 })).status).toBe(400);
   });
 
   it('ignores webhooks without a valid Stripe signature', async () => {
-    expect((await post(packPaid('evt_forged'), 't=1,v1=forged')).status).toBe(400);
-    expect((await me()).account.credits).toBe(0);
+    expect((await post(topUp('evt_forged', 500), 't=1,v1=forged')).status).toBe(400);
+    expect((await me()).account.balanceMicros).toBe(0);
   });
 
-  it('adds a paid block once, even when Stripe delivers it twice, and spends it after the free parses', async () => {
-    expect((await post(packPaid('evt_pack'))).status).toBe(200);
-    expect((await post(packPaid('evt_pack'))).status).toBe(200); // retried delivery
-    expect((await me()).account.credits).toBe(3);
-    for (let i = 0; i < 3; i++) expect((await parse()).status).toBe(200); // 2 free, then 1 bought
-    const m = (await me()).account;
-    expect(m.freeParsesUsed).toBe(2);
-    expect(m.credits).toBe(2);
+  it('refuses a parse once free parses are used and the balance is empty', async () => {
+    for (let i = 0; i < 2; i++) expect((await parse()).status).toBe(200);
+    const out = await parse();
+    expect(out.status).toBe(402);
+    expect(out.body.buy).toBe(true);
   });
 
-  it('spends the subscription before bought parses, and stops when it ends', async () => {
-    await post(event('evt_sub', 'checkout.session.completed', { client_reference_id: 'erin', customer: 'cus_erin', mode: 'subscription', status: 'complete' }));
-    expect((await me()).account.pro).toBe(true);
-    expect((await parse()).status).toBe(200);
-    let m = (await me()).account;
-    expect(m.proParsesThisMonth).toBe(1);
-    expect(m.credits).toBe(2);
-    expect((await as('erin').post('/api/billing/checkout').send({ what: 'subscription' })).body.url).toBe('https://billing.stripe.test/erin'); // manage, not buy again
-    await post(event('evt_end', 'customer.subscription.deleted', { customer: 'cus_erin', status: 'canceled' }));
-    m = (await me()).account;
-    expect(m.pro).toBe(false);
+  it('credits a top-up once, less Stripe\'s fee, even when Stripe delivers it twice', async () => {
+    expect((await post(topUp('evt_topup', 500))).status).toBe(200);
+    expect((await post(topUp('evt_topup', 500))).status).toBe(200); // retried delivery
+    expect((await me()).account.balanceMicros).toBe(FIVE_NET);
+  });
+
+  it('takes a ream-of-paper donation without adding it to the balance', async () => {
+    expect((await as('erin').post('/api/billing/checkout').send({ what: 'donation', cents: 1 })).body.url).toBe('https://checkout.stripe.test/donation/700/erin');
+    const gift = event('evt_gift', 'checkout.session.completed',
+      { mode: 'payment', payment_status: 'paid', amount_total: 700, metadata: { account: 'erin', kind: 'donation' }, customer: 'cus_erin', status: 'complete' });
+    expect((await post(gift)).status).toBe(200);
+    expect((await me()).account.balanceMicros).toBe(FIVE_NET);
+  });
+
+  it('charges each parse at cost', async () => {
+    const { usageOf } = await import('../server/parser.ts');
+    const { USAGE_MARKUP } = await import('../server/app.ts');
+    expect(USAGE_MARKUP).toBe(1);
+    const text = 'Charged by length.';
+    expect((await parse(text)).status).toBe(200);
+    // The offline parser reports a stand-in cost for this length.
+    const cost = Math.ceil(usageOf('claude-opus-5-5', 1500 + Math.ceil(text.length / 4), Math.ceil(text.length / 2)).usd * USAGE_MARKUP * 1e6);
+    expect((await me()).account.balanceMicros).toBe(FIVE_NET - cost);
+  });
+
+  it('credits each paid month of a subscription, and ends it when cancelled', async () => {
+    const before = (await me()).account.balanceMicros;
+    await post(event('evt_sub', 'checkout.session.completed', { mode: 'subscription', status: 'complete', metadata: { account: 'erin' }, customer: 'cus_erin' }));
+    expect((await me()).account.subscribed).toBe(true);
+    const month = (id: string) => event(id, 'invoice.paid',
+      { amount_paid: 100, customer: 'cus_erin', parent: { type: 'subscription_details', subscription_details: { metadata: { account: 'erin' }, subscription: 'sub_1' } } });
+    await post(month('evt_m1'));
+    await post(month('evt_m2'));
+    const oneNet = Math.round((100 * 0.971 - 30) * 10_000);
+    expect((await me()).account.balanceMicros).toBe(before + 2 * oneNet);
+    expect((await as('erin').post('/api/billing/checkout').send({ what: 'subscription', cents: 100 })).body.url).toBe('https://billing.stripe.test/erin'); // manage, not a second one
+    await post(event('evt_end', 'customer.subscription.deleted', { status: 'canceled', metadata: { account: 'erin' }, customer: 'cus_erin' }));
+    expect((await me()).account.subscribed).toBe(false);
   });
 });
 

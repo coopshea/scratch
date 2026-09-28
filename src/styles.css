@@ -313,3 +313,5 @@ a.stage { text-decoration: none; }
 .account form { display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
 .account input { flex: 1; min-width: 200px; font: 15px var(--serif); padding: 4px 8px; border: 1px solid var(--rule-strong); background: var(--paper); color: var(--ink); }
 .account .buy { display: flex; gap: 24px; }
+.account .buy { align-items: baseline; }
+.account input.amount { flex: none; width: 5em; min-width: 0; margin-left: 2px; }

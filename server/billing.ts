@@ -1,50 +1,66 @@
 import Stripe from 'stripe';
-import { PACK_PARSES, type Account, type Accounts } from './accounts.ts';
+import type { Account, Accounts } from './accounts.ts';
 import { HttpError } from './store.ts';
 
 /**
- * Paying for parses through Stripe: a one-time block of parses, or a monthly subscription. Checkout and cancelling
- * happen on Stripe's own pages; the webhook tells us what was paid for. Nothing about cards touches this server.
+ * Paying in through Stripe: a one-time top-up or a monthly subscription, for an amount the writer picks. Either adds
+ * to their balance, which parses draw down by what they cost. A donation (a ream of paper) is separate and adds
+ * nothing. Checkout and cancelling happen on Stripe's own pages; the webhook tells us what was paid. Amounts are set
+ * per checkout, so nothing has to be created in Stripe first.
  */
-export type Purchase = 'pack' | 'subscription';
+export type Purchase = 'topup' | 'subscription' | 'donation';
+
+/** A ream of paper. */
+export const DONATION_CENTS = 700;
 
 export interface Billing {
-  /** What is on sale, from which prices are configured. */
-  offers: Record<Purchase, boolean>;
-  /** A Stripe Checkout page for one purchase. */
-  checkoutUrl(account: Account, origin: string, what: Purchase): Promise<string>;
+  /** A Stripe Checkout page for `cents`, once or monthly. */
+  checkoutUrl(account: Account, origin: string, what: Purchase, cents: number): Promise<string>;
   /** Stripe's own page for changing card or cancelling. */
   portalUrl(account: Account, origin: string): Promise<string>;
   /** Verifies Stripe's signature, then applies the event. */
   webhook(raw: Buffer, signature: string): Promise<void>;
 }
 
-// Subscription states that keep Pro on. past_due keeps it while Stripe retries the card.
+export const MIN_CENTS = 100;
+export const MAX_CENTS = 10_000;
+
+/** Stripe's standard card fee, taken out of what a payment adds to the balance. */
+export const STRIPE_FEE = { percent: 2.9, cents: 30 };
+/** What a payment adds to the balance, in micro-dollars. */
+export const netMicros = (cents: number) => Math.max(0, Math.round((cents * (1 - STRIPE_FEE.percent / 100) - STRIPE_FEE.cents) * 10_000));
+
+// Subscription states that keep it on. past_due keeps it while Stripe retries the card.
 const ACTIVE = new Set(['active', 'trialing', 'past_due']);
 
 export class StripeBilling implements Billing {
   private stripe: Stripe;
-  offers: Record<Purchase, boolean>;
-  constructor(private accounts: Accounts, secretKey: string, private prices: Partial<Record<Purchase, string>>, private webhookSecret: string) {
+  constructor(private accounts: Accounts, secretKey: string, private webhookSecret: string) {
     this.stripe = new Stripe(secretKey);
-    this.offers = { pack: !!prices.pack, subscription: !!prices.subscription };
   }
 
-  async checkoutUrl(account: Account, origin: string, what: Purchase) {
-    const price = this.prices[what];
-    if (!price) throw new HttpError(404, 'Not on sale');
+  async checkoutUrl(account: Account, origin: string, what: Purchase, cents: number) {
     const customer = await this.accounts.customerOf(account.id);
+    // Read back from the signed webhook: whose balance, and whether this payment adds to it at all.
+    const tag = { account: account.id, kind: what };
+    const name = { topup: 'Scratch usage', subscription: 'Scratch usage, monthly', donation: 'A ream of paper for Cooper (donation)' }[what];
     const session = await this.stripe.checkout.sessions.create({
-      mode: what === 'pack' ? 'payment' : 'subscription',
-      line_items: [{ price, quantity: 1 }],
+      mode: what === 'subscription' ? 'subscription' : 'payment',
+      line_items: [{
+        quantity: 1,
+        price_data: {
+          currency: 'usd', unit_amount: what === 'donation' ? DONATION_CENTS : cents,
+          product_data: { name },
+          ...(what === 'subscription' ? { recurring: { interval: 'month' as const } } : {}),
+        },
+      }],
       client_reference_id: account.id,
-      // A block's size is fixed here, on the server, and read back from the signed webhook.
-      metadata: what === 'pack' ? { parses: String(PACK_PARSES) } : {},
-      ...(customer ? { customer } : what === 'pack' ? { customer_creation: 'always' as const } : {}),
-      ...(customer ? {} : { customer_email: account.email ?? undefined }),
+      metadata: tag,
+      ...(what === 'subscription' ? { subscription_data: { metadata: tag } } : {}),
+      ...(customer ? { customer } : { customer_email: account.email ?? undefined }),
+      ...(!customer && what !== 'subscription' ? { customer_creation: 'always' as const } : {}),
       success_url: `${origin}/?account&paid=${what}`,
       cancel_url: `${origin}/?account`,
-      allow_promotion_codes: true,
     });
     if (!session.url) throw new HttpError(502, 'Stripe did not return a checkout page');
     return session.url;
@@ -82,26 +98,34 @@ export async function applyEvent(accounts: Accounts, event: Stripe.Event) {
 async function apply(accounts: Accounts, event: Stripe.Event) {
   const customerId = (c: string | { id: string } | null) => (typeof c === 'string' ? c : c?.id ?? null);
   switch (event.type) {
+    // A top-up is credited here; a donation is not. A subscription only starts here; its money arrives with each paid invoice.
     case 'checkout.session.completed': {
       const s = event.data.object;
-      const id = s.client_reference_id;
-      const customer = customerId(s.customer);
+      const id = s.metadata?.account;
       if (!id) return;
+      const customer = customerId(s.customer);
       if (customer) await accounts.linkCustomer(id, customer);
-      if (s.mode === 'payment' && s.payment_status === 'paid') {
-        const n = Number(s.metadata?.parses);
-        if (Number.isInteger(n) && n > 0) await accounts.addCredits(id, n);
+      if (s.mode === 'payment' && s.metadata?.kind === 'topup' && s.payment_status === 'paid' && s.amount_total) {
+        await accounts.addBalance(id, netMicros(s.amount_total));
       }
-      // Subscription events can arrive before this one, when the customer was not linked yet; switch it on here too.
-      if (s.mode === 'subscription' && customer && s.status === 'complete') await accounts.setProByCustomer(customer, true);
+      if (s.mode === 'subscription' && s.status === 'complete') await accounts.setSubscribed(id, true);
       return;
     }
-    case 'customer.subscription.created':
+    // Every month's payment, the first included.
+    case 'invoice.paid': {
+      const inv = event.data.object;
+      const id = inv.parent?.subscription_details?.metadata?.account;
+      if (!id || !inv.amount_paid) return;
+      const customer = customerId(inv.customer);
+      if (customer) await accounts.linkCustomer(id, customer);
+      await accounts.addBalance(id, netMicros(inv.amount_paid));
+      return;
+    }
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted': {
       const sub = event.data.object;
-      const customer = customerId(sub.customer);
-      if (customer) await accounts.setProByCustomer(customer, event.type !== 'customer.subscription.deleted' && ACTIVE.has(sub.status));
+      const id = sub.metadata?.account;
+      if (id) await accounts.setSubscribed(id, event.type !== 'customer.subscription.deleted' && ACTIVE.has(sub.status));
       return;
     }
   }
