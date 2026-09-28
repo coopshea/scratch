@@ -146,7 +146,7 @@ export function support(claim: Unit, units: Unit[]): Support {
   const kids = units.filter((u) => u.home === claim.id && u.status !== 'cut');
   const ev = kids.filter((k) => k.type === 'evidence' || k.type === 'artifact');
   if (!ev.length) return 'none';
-  const checked = ev.some((e) => e.verified && e.origin === 'human');
+  const checked = ev.some((e) => e.verified && e.origin !== 'model');
   const answered = kids.some((k) => k.type === 'objection');
   return checked && answered ? 'checked' : 'unchecked';
 }

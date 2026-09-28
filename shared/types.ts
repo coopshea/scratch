@@ -22,15 +22,26 @@ export interface Unit {
   /** Id of the claim this unit belongs to. Claims and unassigned units have null. */
   home: string | null;
   status: UnitStatus;
-  /** Who produced the unit's words. Parsed units are human words, typed and labeled by the model. */
-  origin: 'human' | 'model';
-  labeledBy: 'human' | 'model';
+  /** Who produced the unit's words. Parsed units are human words, typed and labeled by the model.
+   *  'source' is a passage quoted verbatim from something the writer read. */
+  origin: 'human' | 'model' | 'source';
+  labeledBy: 'human' | 'model' | 'system';
   verified: boolean;
   /** Rich-text note (BlockNote document JSON). */
   note: unknown[] | null;
   priorArt?: string;
+  /** Where a 'source' unit's words came from. Sourced is not verified: checking stays a human act. */
+  source?: SourceRef;
   flags?: { notVerbatim?: boolean; labelTooLong?: boolean };
   createdAt: string;
+}
+
+export interface SourceRef {
+  kind: 'readwise';
+  id: string;
+  title: string;
+  author: string;
+  url: string | null;
 }
 
 export interface Blurt {

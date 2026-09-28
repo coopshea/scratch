@@ -4,21 +4,43 @@ Open work, newest first. Delete an item when it ships; git history keeps the rec
 
 ## Open
 
-### Readwise import: claims and evidence from annotated sources
-**Added:** 2026-09-26 · **Priority:** high, this is the main input path
+### Readwise import: suggested reading, pulled in as sourced units
+**Added:** 2026-09-26 · **Design settled:** 2026-09-27 · **Priority:** high, this is the main input path
 
-Cooper reads and annotates in Readwise, using the web clipper and Reader. A highlight is the source's own words. An annotation on a highlight is Cooper's own thinking about it. Both belong in the tool, and the tool is a helper to that reading process, not a replacement for it.
+Cooper reads and annotates in Readwise. A highlight is the source's words, and a note on it is his thinking. Finding sources is cataloging, which the tool should do. Choosing which ones matter is judgment, and that stays with the writer.
 
-Proposed mapping:
-- **Highlight text** becomes an `evidence` unit. The text is verbatim from the source, so it keeps the "cut, never reword" rule for free. It carries the author, title, and URL as its source.
-- **Annotation (note on a highlight)** is treated as a blurt and parsed like one, so it becomes claims, questions, and objections in Cooper's words. Each unit parsed from an annotation gets the highlight as its evidence, linked by `home`.
-- **Tags** on a highlight become suggested concept labels, reusing the controlled vocabulary.
-- **Import scope** is per document in the drafting tool: pick which Readwise books or articles to pull, then re-sync for new highlights only.
+**What the writer sees.** There's no search panel. One line in Talk suggests up to 7 articles from his reading, ranked against the current document. Each row shows the note of his that matched, so he can see why it's listed. He types `1 2 4` (or clicks) and they're pulled in. On a blank page the document title is the query. As he works, his top claim labels join it.
+
+**What pulling does.** A highlight becomes an `evidence` unit: verbatim, carrying title, author and URL, and marked `sourced`. A note becomes a blurt with its highlight attached as evidence, and goes through the existing parser. That's one call per article, and junk notes produce nothing. Everything goes through the server and `events.jsonl`.
+
+**Design.**
+- **Search uses the source's own search.** Readwise already runs a hybrid of vector and full-text search, so we don't run embeddings. In a test, "gas turbines" put *Why Jet Engines Aren't Made in China* first with no shared words.
+- **One module per source,** with a source-neutral shape:
+  - `search(query) → hits`
+  - `recent() → docs`, the fallback
+  - `pull(docIds) → docs`, each with its passages (the source's text) and notes (the writer's text)
+
+  `server/readwise.ts` is the only file that knows Readwise exists. Don't build a registry or a dispatcher until a second source exists.
+- **Readwise specifics:**
+  - Search: `readwise_search_highlights` on the MCP server at `https://mcp2.readwise.io/mcp`, called through `@modelcontextprotocol/sdk`.
+  - Pull and sync: REST `GET /api/v2/export/`, which is versioned and stable, returns whole articles, and has a deleted flag.
+  - Auth: both use `READWISE_TOKEN` with the header `Authorization: Token <token>`, not `Bearer`. The official `@readwise/cli` is only a wrapper around the MCP server, so we don't use it.
+- **Fail soft.** If the search tool is missing or renamed, the line shows the most recently annotated articles instead. With no token, the line never appears.
+- **Search sparingly.** Search only when the title changes or a new claim appears, and cache results. Readwise publishes no rate limit for search. Export is 20/min, and one call covers a whole library.
+- **Re-pull is incremental.** Keep a map from highlight id to unit id, so a re-pull adds only new highlights. A note edited in Readwise after import flags the unit and never overwrites it. A deletion in Readwise flags the unit and never removes it.
+
+**Status (2026-09-27):** The server side is built: `server/readwise.ts`, the `/readwise/status`, `/search` and `/adopt` endpoints, and `npm run check:readwise`. There's no UI yet. Proposed order: frame first (topic, audience, questions), then talk from memory, then opt in to sources, then structure, then draft. Sources come to the writer's claims: each claim is searched in its own words, and one or two candidates appear faintly under it. Nothing is bulk-imported into the map. Next: build that per-claim step, then the Draft reading tray. Labels cut from the first words of a highlight are weak; consider the parser's labeler.
+
+**Library as of 2026-09-27:** 505 highlights in 70 articles, all from Reader. 95% of highlights have notes, many of them 200+ characters of dictated thinking. Tags are almost unused, so tag-to-concept mapping isn't worth building.
 
 Open questions:
-- [OPEN] Does an imported highlight count as "source checked"? It is exact text from the source, but the source itself is unvetted. Proposal: mark it `sourced` rather than `verified`, and keep verification a human act.
-- [OPEN] Endpoints. Readwise publishes a highlights export API and a separate Reader API. Confirm the current endpoints, authentication, and incremental-sync parameters against the official docs before building. Nothing here has been checked against the live docs yet.
-- [OPEN] Token storage: `READWISE_TOKEN` in `.env`, gitignored, same as the Anthropic key.
+- [OPEN] `sourced` vs `verified`. Proposal: imported highlights are `sourced`, and verification stays a human act.
+- [OPEN] Ranking weights: more matching highlights and more of the writer's own notes rank an article higher. Tune these against the real library.
+
+### Other reading sources (Obsidian, Apple Notes)
+**Added:** 2026-09-27 · **Priority:** only when someone needs it
+
+Each source gets its own module with the same `search / recent / pull` shape as Readwise. When there are two or more sources, send the query to all of them and merge the ranked lists with reciprocal rank fusion. Scores from different sources aren't comparable, but ranks are. A source with no search of its own, such as a folder of Markdown files, gets a local embedding index built inside its module (`@huggingface/transformers`, a small model, brute-force cosine). That keeps embeddings a detail of the sources that need them, not a global layer.
 
 ### Smarter reference detection in Draft
 **Added:** 2026-09-26 · **Priority:** later
