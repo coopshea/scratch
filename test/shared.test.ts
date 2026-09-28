@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { toMarkdown } from '../shared/export.ts';
+import { canHoldUnit, isRoot, pickVisible, settle } from '../shared/clusters.ts';
 import { replay, type LogEvent } from '../shared/replay.ts';
 import { emptyBoard, outlineToStructure, reslot, STRUCTURES, support } from '../shared/structures.ts';
 import { unit } from './helpers.ts';
@@ -114,5 +115,52 @@ describe('outlines', () => {
     const board = { ...emptyBoard(), structure: 'persuasive', lanes: { persuasive: { hook: ['h'], thesis: ['t'], p1: ['p', 'missing'] } } };
     const out = reslot(board, STRUCTURES.persuasive, STRUCTURES.paper, units);
     expect(out).toEqual({ hook: ['h'], thesis: ['t'], p1: ['p'] });
+  });
+});
+
+describe('clusters: root plus four, one level deep', () => {
+  it('claims and questions that belong to nothing are roots', () => {
+    expect(isRoot(unit({ type: 'claim' }))).toBe(true);
+    expect(isRoot(unit({ type: 'question' }))).toBe(true);
+    expect(isRoot(unit({ type: 'claim', home: 'x' }))).toBe(false);
+    expect(isRoot(unit({ type: 'evidence' }))).toBe(false);
+  });
+
+  it('shows everything when a cluster has four pieces or fewer', () => {
+    const kids = ['evidence', 'evidence', 'story', 'concept'].map((type) => unit({ type: type as never }));
+    expect(pickVisible(kids)).toEqual({ shown: kids, hidden: [] });
+  });
+
+  it('shows one of each type first, in blurt order, and collapses the rest', () => {
+    const kids = [
+      unit({ id: 'e1', type: 'evidence' }), unit({ id: 'e2', type: 'evidence' }), unit({ id: 'e3', type: 'evidence' }),
+      unit({ id: 'c1', type: 'concept' }), unit({ id: 's1', type: 'story' }), unit({ id: 'o1', type: 'objection' }),
+    ];
+    const { shown, hidden } = pickVisible(kids);
+    expect(shown.map((k) => k.id)).toEqual(['e1', 'c1', 's1', 'o1']);
+    expect(hidden.map((k) => k.id)).toEqual(['e2', 'e3']);
+  });
+
+  it('fills remaining slots in blurt order when types repeat', () => {
+    const kids = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => unit({ id, type: 'evidence' }));
+    expect(pickVisible(kids).shown.map((k) => k.id)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('only a root can hold, and never itself', () => {
+    const root = unit({ id: 'r', type: 'question' });
+    expect(canHoldUnit(root, { id: 'x' })).toBe(true);
+    expect(canHoldUnit(root, root)).toBe(false);
+    expect(canHoldUnit(unit({ type: 'claim', home: 'r' }), { id: 'x' })).toBe(false);
+    expect(canHoldUnit(undefined, { id: 'x' })).toBe(false);
+  });
+
+  it('settle: a unit that stops being a root lets its pieces go loose', () => {
+    const r = unit({ id: 'r', type: 'claim' });
+    const kids = [unit({ id: 'k1', home: 'r', type: 'evidence' }), unit({ id: 'k2', home: 'r', type: 'story' })];
+    settle([r, ...kids], r);
+    expect(kids.map((k) => k.home)).toEqual(['r', 'r']);
+    r.home = 'other';
+    settle([r, ...kids], r);
+    expect(kids.map((k) => k.home)).toEqual([null, null]);
   });
 });

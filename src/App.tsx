@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Project, Unit } from '../shared/types.ts';
 import { structureMap, type Board, type StructureDef } from '../shared/structures.ts';
 import { replay, type LogEvent } from '../shared/replay.ts';
+import { settle } from '../shared/clusters.ts';
 import { api, archetypes, slug } from './api.ts';
 import { DocList } from './DocList.tsx';
 import { Draft } from './Draft.tsx';
@@ -88,8 +89,9 @@ export function App() {
     try {
       const saved = await api.patch(id, patch);
       setUnits((us) => {
-        const next = us.map((u) => (u.id === id ? saved : u));
-        return patch.type && patch.type !== 'claim' ? next.map((u) => (u.home === id ? { ...u, home: null } : u)) : next;
+        const next = us.map((u) => (u.id === id ? saved : { ...u }));
+        settle(next, saved);
+        return next;
       });
       if (patch.status === 'cut' && selectedId === id) setSelectedId(null);
     } catch (e) {

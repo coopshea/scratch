@@ -11,6 +11,7 @@ import { UNIT_TYPES as TYPES } from '../shared/types.ts';
 import { toMarkdown } from '../shared/export.ts';
 import * as readwise from './readwise.ts';
 import { cutLabel, locate, noteBlocks } from './text.ts';
+import { canHold, canHoldUnit, isRoot, settle } from '../shared/clusters.ts';
 import { labelProblem, UNIT_TYPES, type Blurt, type Unit } from '../shared/types.ts';
 
 /** The whole API, without the dev server, so tests can call it directly. */
@@ -145,30 +146,34 @@ export function createApp(): Express {
     const before = readUnits(slug);
     const live = before.filter((u) => u.status !== 'cut');
     const vocab = [...new Set(live.map((u) => u.label))];
-    const claims = live.filter((u) => u.type === 'claim').map((u) => ({ id: u.id, label: u.label }));
+    const roots = live.filter(isRoot).map((u) => ({ id: u.id, type: u.type, label: u.label }));
 
-    const parsed = await parseBlurt(blurt.text, vocab, claims);
+    const parsed = await parseBlurt(blurt.text, vocab, roots);
 
     return withLock(slug, () => {
       const units = readUnits(slug);
       // Controlled vocabulary: the first spelling of a label wins, including within this parse.
       const byLabel = new Map<string, string>();
       for (const u of units) if (!byLabel.has(u.label.toLowerCase())) byLabel.set(u.label.toLowerCase(), u.label);
-      const claimIds = new Set(units.filter((u) => u.type === 'claim').map((u) => u.id));
+      const rootIds = new Set(units.filter((u) => u.status !== 'cut' && isRoot(u)).map((u) => u.id));
       const keyToId = new Map<string, string>();
       parsed.forEach((p) => keyToId.set(p.key, newId()));
+      const byKey = new Map(parsed.map((p) => [p.key, p]));
+      // One level deep: a piece belongs to a root. If the model nests deeper, the piece moves up to that root.
+      const parentOf = (p: ParsedUnit, seen = new Set<string>()): string | null => {
+        if (!p.home || seen.has(p.key)) return null;
+        seen.add(p.key);
+        const local = byKey.get(p.home);
+        if (local && local.key !== p.key && canHold(local.type)) return parentOf(local, seen) ?? keyToId.get(local.key)!;
+        return rootIds.has(p.home) ? p.home : null;
+      };
 
       const created: Unit[] = parsed.map((p: ParsedUnit) => {
         const loc = locate(blurt.text, p.text);
         const key = p.label.trim().toLowerCase();
         if (!byLabel.has(key)) byLabel.set(key, p.label.trim());
         const label = byLabel.get(key)!;
-        let home: string | null = null;
-        if (p.type !== 'claim' && p.home) {
-          const local = parsed.find((q) => q.key === p.home && q.type === 'claim');
-          if (local) home = keyToId.get(local.key)!;
-          else if (claimIds.has(p.home)) home = p.home;
-        }
+        const home = parentOf(p);
         return {
           id: keyToId.get(p.key)!,
           type: p.type,
@@ -236,16 +241,14 @@ export function createApp(): Express {
       const units = readUnits(slug);
       const u = units.find((x) => x.id === id);
       if (!u) throw new HttpError(404, 'Unit not found');
-      if (patch.home !== undefined && patch.home !== null) {
-        const target = units.find((x) => x.id === patch.home);
-        if (!target || target.type !== 'claim' || target.id === u.id) throw new HttpError(400, 'Home must be another claim');
+      if (patch.home !== undefined && patch.home !== null && !canHoldUnit(units.find((x) => x.id === patch.home), u)) {
+        throw new HttpError(400, 'A piece can only go under a claim or question that belongs to nothing');
       }
       Object.assign(u, patch);
       if (patch.label !== undefined) { u.labeledBy = 'human'; if (u.flags) delete u.flags.labelTooLong; }
       if (patch.type !== undefined) u.labeledBy = 'human';
-      if (u.type === 'claim') u.home = null;
-      // A claim that stops being a claim releases its children to the unassigned tray.
-      if (patch.type !== undefined && patch.type !== 'claim') units.forEach((x) => { if (x.home === u.id) x.home = null; });
+      // One level deep: a piece that can no longer hold others lets its pieces go loose.
+      settle(units, u);
       writeUnits(slug, units);
       appendEvent(slug, 'human', 'unit.update', { id, patch });
       return u;
@@ -277,7 +280,7 @@ export function createApp(): Express {
     const unit = await withLock(slug, () => {
       const units = readUnits(slug);
       const home = req.body?.home ? String(req.body.home) : null;
-      if (home && !units.some((u) => u.id === home && u.type === 'claim')) throw new HttpError(400, 'Home must be a claim');
+      if (home && !units.some((u) => u.id === home && isRoot(u))) throw new HttpError(400, 'A piece can only go under a claim or question that belongs to nothing');
       const u: Unit = {
         id: newId(), type: 'evidence', label: cutLabel(p.quote), text: p.quote,
         blurtId: null, start: -1, end: -1, home, status: 'accepted',

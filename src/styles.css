@@ -89,7 +89,7 @@ select:focus { outline: none; text-decoration: underline; }
 .unit { --c: var(--ink-soft); position: relative; display: flex; flex-direction: column; max-width: 200px; padding: 3px 8px 4px; background: var(--paper); color: var(--c); cursor: pointer; border-radius: 2px; }
 .unit .kind { font-size: 11px; line-height: 1.2; color: var(--pencil); }
 .unit .lbl { font-size: 14px; line-height: 1.3; }
-.unit.is-claim { padding: 6px 12px; border: 1px solid var(--ink); }
+.unit.is-claim { padding: 6px 12px; border: 1px solid var(--c); }
 .unit.is-claim .lbl { font-size: 16px; font-weight: 600; }
 .unit.is-model { font-style: italic; }
 .unit.is-selected { outline: 1.5px solid var(--ink); outline-offset: 2px; }
@@ -129,6 +129,15 @@ select:focus { outline: none; text-decoration: underline; }
 .graph-edges { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; }
 .graph-edges line { stroke: var(--pencil); stroke-width: .8; transition: opacity .2s; }
 .dim { opacity: .28; }
+/* Collapsed pieces: a dot says there is more; hovering the cluster lists them above its root. */
+.graph-world .unit.collapsed { width: 10px; height: 10px; padding: 0; border-radius: 50%; background: var(--c); opacity: .35; }
+.graph-world .unit.collapsed.peek { opacity: .9; }
+.graph-world .unit:has(.more) { z-index: 20; }
+.unit .more { position: absolute; bottom: calc(100% + 6px); left: 0; display: flex; flex-direction: column; gap: 2px; width: max-content; max-width: 280px; padding: 6px 10px; background: var(--paper-2); border: 1px solid var(--rule-strong); font-weight: 400; font-style: normal; }
+.unit .more-item { all: unset; cursor: pointer; font-size: 14px; line-height: 1.35; }
+.unit .more-item:hover, .unit .more-item.on { text-decoration: underline; }
+.unit .more-item .kind { margin-right: 4px; }
+.graph-edges line.faint { stroke-dasharray: 1 3; opacity: .5; }
 
 /* history */
 .history { gap: 10px; }
@@ -197,8 +206,6 @@ select:focus { outline: none; text-decoration: underline; }
 .uses { font-family: var(--mono); font-size: 11px; color: var(--ochre); }
 .disclose { background: none; border: 0; padding: 0; width: 12px; cursor: pointer; color: var(--pencil); font-size: 11px; }
 .cue-text { margin: 4px 0 8px 20px; font-size: 15px; font-style: italic; color: var(--ink-soft); line-height: 1.5; cursor: pointer; }
-.loose { border-top: 1px solid var(--rule-strong); padding: 14px 28px 40px; max-width: 40%; min-width: 280px; }
-.loose h3 { margin: 0 0 6px; font-size: 14px; font-weight: 400; font-variant: small-caps; letter-spacing: .04em; color: var(--pencil); }
 .page { min-width: 0; }
 .page .cm-editor { height: auto; background: transparent; font-family: var(--serif); font-size: 18px; }
 .page .cm-editor.cm-focused { outline: none; }

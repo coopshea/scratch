@@ -13,4 +13,4 @@ A three-stage drafting tool: talk (blurt and parse), structure (drag clusters on
 - Every mutation goes through the server and is logged to `events.jsonl` with its author (human, model, or system). Do not add features that bypass it.
 - Model-origin units are marked `origin: model` and `verified: false` until the user fills and verifies them.
 - `.env` holds the API key and is gitignored. Never commit it.
-- Preview config: `scratch` (port 5178, real parser). `npm run dev:offline` (port 5179) is a sentence-splitting stand-in for UI work only; never leave it open for Cooper, it looks like a broken parser.
+- Preview config: `scratch` (port 5180, real parser, restarts itself on server changes; frontend changes hot-reload). Keep Cooper on this one address rather than starting servers on new ports. `npm run dev:offline` (port 5179) is a sentence-splitting stand-in for UI work only; never leave it open for Cooper, it looks like a broken parser.

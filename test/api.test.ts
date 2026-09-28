@@ -124,12 +124,30 @@ describe('unit edits', () => {
     expect(res.body.error).toMatch(/7 words/);
   });
 
-  it('only lets a unit belong to another claim', async () => {
+  it('puts pieces only under a root claim or question', async () => {
     const slug = await newProject();
     const { units } = await blurt(slug);
-    const [claim, evidence, question] = units;
-    expect((await request(app).patch(`/api/p/${slug}/units/${evidence.id}`).send({ home: question.id })).status).toBe(400);
-    expect((await request(app).patch(`/api/p/${slug}/units/${claim.id}`).send({ home: claim.id })).status).toBe(400);
+    const patch = (u: Unit, body: object) => request(app).patch(`/api/p/${slug}/units/${u.id}`).send(body);
+    const root = units.find((u) => u.type === 'claim' && !u.home)!;
+    const [child, other] = units.filter((u) => u.home === root.id && u.type === 'evidence');
+    expect((await patch(other, { home: child.id })).status).toBe(400); // under a piece: no
+    expect((await patch(root, { home: root.id })).status).toBe(400); // under itself: no
+    const question = units.find((u) => u.type === 'question')!;
+    expect((await patch(question, { home: null })).status).toBe(200); // a free question is a root
+    expect((await patch(other, { home: question.id })).body.home).toBe(question.id);
+  });
+
+  it('keeps clusters one level deep: a root moved under another root lets its pieces go loose', async () => {
+    const slug = await newProject();
+    const { units } = await blurt(slug);
+    const patch = (u: Unit, body: object) => request(app).patch(`/api/p/${slug}/units/${u.id}`).send(body);
+    const root = units.find((u) => u.type === 'claim' && !u.home)!;
+    const second = units.find((u) => u.home === root.id)!;
+    await patch(second, { type: 'claim', home: null });
+    const moved = (await patch(root, { home: second.id })).body;
+    expect(moved.home).toBe(second.id);
+    const after: Unit[] = (await request(app).get(`/api/p/${slug}`)).body.units;
+    expect(after.filter((u) => u.home === root.id)).toEqual([]);
   });
 
   it('releases children when a claim becomes something else', async () => {

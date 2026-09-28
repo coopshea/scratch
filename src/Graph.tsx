@@ -1,10 +1,12 @@
-import { useLayoutEffect, useMemo, useRef } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation, type SimulationNodeDatum } from 'd3-force';
 import type { Unit } from '../shared/types.ts';
+import { isRoot, pickVisible } from '../shared/clusters.ts';
 import { TYPE_INK } from './typeStyle.ts';
-import { rectCollide, resolveOverlaps } from './collide.ts';
+import { rectCollide, resolveOverlaps, separateGroups, soloColumn } from './collide.ts';
 
-type SimNode = SimulationNodeDatum & { id: string; w: number; h: number; claim: boolean };
+/** group: the cluster's root id, or null for a solo node (a root with no pieces, or a piece that belongs to nothing). */
+type SimNode = SimulationNodeDatum & { id: string; w: number; h: number; claim: boolean; mini: boolean; group: string | null; order: number };
 type SimLink = { source: string | SimNode; target: string | SimNode; key: string };
 
 const PAD = 36;          // screen padding around the fitted graph
@@ -21,6 +23,22 @@ export function Graph({ units, selectedId, onSelect }: Props) {
   const live = useMemo(() => units.filter((u) => u.status !== 'cut'), [units]);
   const liveIds = useMemo(() => new Set(live.map((u) => u.id)), [live]);
   const edges = useMemo(() => live.filter((u) => u.home && liveIds.has(u.home)).map((u) => ({ key: `${u.home}-${u.id}`, source: u.home!, target: u.id })), [live, liveIds]);
+  // Each cluster shows its root and up to four pieces; the rest collapse to dots until the cluster is hovered.
+  const hiddenBy = useMemo(() => {
+    const out = new Map<string, Unit[]>();
+    for (const r of live) {
+      if (!isRoot(r)) continue;
+      const h = pickVisible(live.filter((k) => k.home === r.id)).hidden;
+      if (h.length) out.set(r.id, h);
+    }
+    return out;
+  }, [live]);
+  const hidden = useMemo(() => new Set([...hiddenBy.values()].flat().map((u) => u.id)), [hiddenBy]);
+  const [hoverRoot, setHoverRoot] = useState<string | null>(null);
+  const hoverTimer = useRef<number | undefined>(undefined);
+  const rootIdOf = (u: Unit) => (u.home && liveIds.has(u.home) ? u.home : u.id);
+  const enter = (u: Unit) => { window.clearTimeout(hoverTimer.current); setHoverRoot(rootIdOf(u)); };
+  const leave = () => { window.clearTimeout(hoverTimer.current); hoverTimer.current = window.setTimeout(() => setHoverRoot(null), 250); };
 
   const boxRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
@@ -57,10 +75,13 @@ export function Graph({ units, selectedId, onSelect }: Props) {
   // One simulation for the component's life. Layout effect, so it exists before the first sync below.
   useLayoutEffect(() => {
     const s = forceSimulation<SimNode, SimLink>([])
-      .force('link', forceLink<SimNode, SimLink>([]).id((d) => d.id).distance(60).strength(0.7))
-      .force('charge', forceManyBody<SimNode>().strength((d) => (d.claim ? -420 : -140)))
-      .force('x', forceX<SimNode>(0).strength((d) => (d.claim ? 0.09 : 0.03)))
-      .force('y', forceY<SimNode>(0).strength((d) => (d.claim ? 0.13 : 0.05)))
+      .force('link', forceLink<SimNode, SimLink>([]).id((d) => d.id).distance((l) => ((l.target as SimNode).mini ? 34 : 60)).strength(0.7))
+      .force('charge', forceManyBody<SimNode>().strength((d) => (!d.group ? -30 : d.claim ? -420 : d.mini ? -40 : -140)))
+      // Clusters pull to the center; solo nodes are placed by their column instead.
+      .force('x', forceX<SimNode>(0).strength((d) => (!d.group ? 0 : d.claim ? 0.09 : 0.03)))
+      .force('y', forceY<SimNode>(0).strength((d) => (!d.group ? 0 : d.claim ? 0.13 : 0.05)))
+      .force('clusters', separateGroups())
+      .force('solo', soloColumn())
       .force('collide', rectCollide())
       .alphaDecay(0.035)
       .on('tick', paint)
@@ -77,16 +98,18 @@ export function Graph({ units, selectedId, onSelect }: Props) {
     const s = sim.current;
     if (!s) return;
     const byUnit = new Map(live.map((u) => [u.id, u]));
-    const next: SimNode[] = live.map((u) => {
+    const holding = new Set(live.flatMap((u) => (u.home && liveIds.has(u.home) ? [u.home] : [])));
+    const groupOf = (u: Unit) => (u.home && liveIds.has(u.home) ? u.home : holding.has(u.id) ? u.id : null);
+    const next: SimNode[] = live.map((u, order) => {
       const el = nodeEls.current.get(u.id);
       const w = el?.offsetWidth ?? 120, h = el?.offsetHeight ?? 24;
       let n = simNodes.current.get(u.id);
       if (!n) {
         const home = u.home ? simNodes.current.get(u.home) : undefined;
-        n = { id: u.id, w, h, claim: u.type === 'claim' };
+        n = { id: u.id, w, h, claim: isRoot(u), mini: hidden.has(u.id), group: groupOf(u), order };
         if (home) { n.x = home.x! + (Math.random() - 0.5) * 40; n.y = home.y! + (Math.random() - 0.5) * 40; }
       }
-      n.w = w; n.h = h; n.claim = byUnit.get(u.id)!.type === 'claim';
+      n.w = w; n.h = h; n.claim = isRoot(byUnit.get(u.id)!); n.mini = hidden.has(u.id); n.group = groupOf(u); n.order = order;
       return n;
     });
     simNodes.current = new Map(next.map((n) => [n.id, n]));
@@ -130,7 +153,7 @@ export function Graph({ units, selectedId, onSelect }: Props) {
 
   // Selecting a node keeps everything visible and dims what is outside its cluster.
   const sel = live.find((u) => u.id === selectedId);
-  const clusterRoot = sel ? (sel.type === 'claim' ? sel.id : sel.home) : null;
+  const clusterRoot = sel ? (isRoot(sel) ? sel.id : sel.home) : null;
   const inFocus = (u: Unit) => !sel || u.id === sel.id || (clusterRoot !== null && (u.id === clusterRoot || u.home === clusterRoot));
 
   return (
@@ -139,19 +162,33 @@ export function Graph({ units, selectedId, onSelect }: Props) {
         <svg className="graph-edges" aria-hidden>
           {edges.map((e) => (
             <line key={e.key} ref={(el) => { if (el) edgeEls.current.set(e.key, el); else edgeEls.current.delete(e.key); }}
-              className={!sel || e.source === clusterRoot ? '' : 'dim'} />
+              className={[!sel || e.source === clusterRoot ? '' : 'dim', hidden.has(e.target) ? 'faint' : ''].join(' ')} />
           ))}
         </svg>
         {live.map((u) => {
-          const cls = ['unit', u.type === 'claim' ? 'is-claim' : '',
+          const mini = hidden.has(u.id);
+          const open = mini && (hoverRoot === rootIdOf(u) || clusterRoot === rootIdOf(u));
+          const cls = ['unit', isRoot(u) ? 'is-claim' : '', mini ? 'collapsed' : '', open ? 'peek' : '',
             u.origin === 'model' ? 'is-model' : '', u.id === selectedId ? 'is-selected' : '', inFocus(u) ? '' : 'dim'].join(' ');
           return (
             <div key={u.id} className={cls} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}
               ref={(el) => { if (el) nodeEls.current.set(u.id, el); else nodeEls.current.delete(u.id); }}
-              onPointerDown={(e) => press(e, u.id)}>
-              {u.type !== 'claim' && <span className="kind">{u.type}</span>}
-              <span className="lbl">{u.label}</span>
+              onPointerDown={(e) => press(e, u.id)} onPointerEnter={() => enter(u)} onPointerLeave={leave}>
+              {!mini && <>
+                {!(u.type === 'claim' && !u.home) && <span className="kind">{u.type}</span>}
+                <span className="lbl">{u.label}</span>
+              </>}
               <div className="tip">{u.text}</div>
+              {hiddenBy.has(u.id) && (hoverRoot === u.id || clusterRoot === u.id) && (
+                <div className="more">
+                  {hiddenBy.get(u.id)!.map((k) => (
+                    <button key={k.id} className={`more-item ${k.id === selectedId ? 'on' : ''}`} style={{ color: TYPE_INK[k.type] }}
+                      onPointerDown={(e) => { e.stopPropagation(); onSelect(k.id); }}>
+                      <span className="kind">{k.type}</span> {k.label}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })}

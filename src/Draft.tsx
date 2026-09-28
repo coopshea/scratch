@@ -8,6 +8,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import type { Unit } from '../shared/types.ts';
+import { isRoot } from '../shared/clusters.ts';
 import { STRUCTURES, type Board, type Lane, type StructureDef } from '../shared/structures.ts';
 import { api } from './api.ts';
 import { TYPE_INK } from './typeStyle.ts';
@@ -201,9 +202,8 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
   const rowsFor = (laneId: string): Row[] => (assign[laneId] ?? []).map((id) => byId.get(id)).filter((u): u is Unit => !!u)
     .flatMap((u) => [
       { unit: u, depth: 0 },
-      ...(u.type === 'claim' ? live.filter((k) => k.home === u.id && !placedLane.has(k.id)).map((k) => ({ unit: k, depth: 1 })) : []),
+      ...(isRoot(u) ? live.filter((k) => k.home === u.id && !placedLane.has(k.id)).map((k) => ({ unit: k, depth: 1 })) : []),
     ]);
-  const loose = live.filter((u) => !laneOf(u));
 
   const uses = useMemo(() => {
     const m = new Map<string, number>();
@@ -381,8 +381,8 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
         onMouseEnter={() => setHover(u.id)} onMouseLeave={() => setHover(null)}>
         <div className="cue-line">
           <button className="disclose" onClick={() => toggle(u.id)} aria-label="Show original">{open.has(u.id) ? '▾' : '▸'}</button>
-          {u.type !== 'claim' && <em style={{ color: TYPE_INK[u.type] }}>{u.type}</em>}
-          <span className={`cue-label ${u.type === 'claim' ? 'is-claim' : ''}`} onDoubleClick={() => insert(u.id)}>{u.label}</span>
+          {!(u.type === 'claim' && isRoot(u)) && <em style={{ color: TYPE_INK[u.type] }}>{u.type}</em>}
+          <span className={`cue-label ${isRoot(u) ? 'is-claim' : ''}`} onDoubleClick={() => insert(u.id)}>{u.label}</span>
           {n > 1 && <span className="uses">×{n}</span>}
         </div>
         {open.has(u.id) && <p className="cue-text" onClick={() => onSelect(u.id)}>{u.text}</p>}
@@ -424,12 +424,6 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
         </div>
         <div className="page" ref={host} />
       </div>
-      {loose.length > 0 && (
-        <aside className="loose">
-          <h3>unplaced</h3>
-          {loose.flatMap((u) => (u.type === 'claim' || !u.home || !byId.has(u.home) ? [{ unit: u, depth: 0 }] : [])).map(cue)}
-        </aside>
-      )}
     </div>
   );
 }

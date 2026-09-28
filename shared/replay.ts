@@ -1,5 +1,6 @@
 import type { Blurt, Unit } from './types.ts';
 import { emptyBoard, type Board } from './structures.ts';
+import { settle } from './clusters.ts';
 
 export type LogEvent = { t: string; author: 'human' | 'model' | 'system'; type: string; data: any };
 
@@ -19,8 +20,7 @@ export function replay(events: LogEvent[], count: number): { blurts: Blurt[]; un
       const u = units.get(e.data.id);
       if (!u) continue;
       Object.assign(u, e.data.patch);
-      if (e.data.patch.type && e.data.patch.type !== 'claim') for (const x of units.values()) if (x.home === u.id) x.home = null;
-      if (u.type === 'claim') u.home = null;
+      settle([...units.values()], u);
     }
   }
   return { blurts, units: [...units.values()], board, draft };

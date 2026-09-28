@@ -9,7 +9,10 @@
     "dev:offline": "PARSER=offline PORT=5179 tsx server/index.ts",
     "check:readwise": "tsx scripts/check-readwise.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "audit:parse": "tsx scripts/audit-parse.ts",
+    "compare:parse": "tsx scripts/compare-parse.ts",
+    "dev:watch": "PORT=${PORT:-5180} tsx watch --clear-screen=false server/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",

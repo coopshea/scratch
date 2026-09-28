@@ -38,14 +38,14 @@ Never paste a key into `.env.example`, an issue, or a commit. If a key leaks, re
 npm test
 ```
 
-Vitest runs the suite in under a second, and CI runs it with the typecheck on every PR. Tests never call the Anthropic or Readwise APIs, and they never touch `projects/`. The parser runs offline or as a stand-in, Readwise answers come from recorded responses, and each test file writes to its own temporary folder (`SCRATCH_DATA`). Most tests guard a rule from `CLAUDE.md`: cuts are verbatim, labels stay within limits, every change is logged with its author, sourced is not verified, and keys never reach the repo. `npm run test:watch` reruns tests on save.
+Vitest runs the suite in under a second, and CI runs it with the typecheck on every PR. Tests never call the Anthropic or Readwise APIs, and they never touch `projects/`. The parser runs offline or as a stand-in, Readwise answers come from recorded responses, and each test file writes to its own temporary folder (`SCRATCH_DATA`). Most tests guard a rule from `CLAUDE.md`: cuts are verbatim, labels stay within limits, every change is logged with its author, sourced is not verified, and keys never reach the repo. `npm run test:watch` reruns tests on save. `npm run audit:parse` runs the CAD talk fixture through the real parser (one API call) and reports how it clustered; use it to compare prompt changes.
 
 ## Stack, drop-in wherever possible
 
 | Piece | Tool |
 |---|---|
 | App | Vite + React + TypeScript, served by a small Express server that holds the key and writes files |
-| Parser | Anthropic SDK, `claude-opus-5`, structured output via Zod, server-side refusal fallback on |
+| Parser | Anthropic SDK, `claude-opus-5-5` at low effort, structured output via Zod, server-side refusal fallback on. `npm run compare:parse` benchmarks other models and effort levels |
 | Cluster graph | `d3-force`, contained and auto-fitted to the pane; no infinite canvas |
 | Node notes | BlockNote (rich text, images, slash menu) |
 | Draft editor | CodeMirror 6 |
