@@ -22,7 +22,7 @@ The hosted site is the same app with sign-in turned on. It turns on when `CLERK_
 - **Paying for parses:** the site runs at cost. Each writer gets `FREE_PARSES` (2), then parses draw down a prepaid balance by what they actually cost (tokens at Anthropic's price for the model, times `USAGE_MARKUP`, default 1), then fall back to the writer's own Anthropic key. A parse costs about 2 to 20 cents on `claude-opus-5-5`. Writers add money through Stripe Checkout (`server/billing.ts`) for any amount from $1 to $100, once or monthly; Stripe's card fee (2.9% + 30¢) comes out of what is credited. A separate $7 "ream of paper" donation adds nothing to the balance. The webhook at `/stripe/webhook` checks Stripe's signature, applies each event once, and gives the event back if applying fails so Stripe's retry lands; monthly payments are credited from each paid invoice. Blurts are capped at about 5 pages (14,000 characters) because the parser copies every word back and a longer blurt would outrun one response's output ceiling.
 - **Writing:** still files, one folder per writer at `$SCRATCH_DATA/u/<clerk user id>/`, on a Railway volume.
 - **Limits:** 600 requests a minute per address, 300 per writer, 6 parses a minute and 100 a day per writer, 60 uploads and 60 new documents an hour.
-- **Off when hosted:** Readwise, because its token is shared.
+- **Readwise:** each writer adds their own token on the account page. It's checked with Readwise, stored encrypted like their Anthropic key, and only ever used for their own highlights; the server's `READWISE_TOKEN` is never used when hosted.
 
 `npm run build` then `npm start` runs the production server. It refuses to start without `CLERK_SECRET_KEY` and `DATABASE_URL`.
 

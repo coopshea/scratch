@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import request from 'supertest';
 import Stripe from 'stripe';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Express } from 'express';
 import { tempDataDir } from './helpers.ts';
 
@@ -116,9 +116,29 @@ describe('hosted: free parses and own keys', () => {
     expect(codes).toContain(429);
   });
 
-  it('keeps Readwise off, since its token is shared', async () => {
-    const res = await as('alice').post('/api/p/scratch/readwise/search').send({ query: 'turbines' });
-    expect(res.body.enabled).toBe(false);
+  it("uses only a writer's own Readwise token, checked with Readwise, stored and never returned", async () => {
+    process.env.READWISE_TOKEN = 'serverwidetokenthatmustneverbeused000';
+    expect((await as('alice').post('/api/p/scratch/readwise/search').send({ query: 'turbines' })).body.enabled).toBe(false);
+    expect((await as('alice').put('/api/me/readwise').send({ token: 'not a token!' })).status).toBe(400);
+
+    const TOKEN = 'a'.repeat(40) + 'READWISE';
+    const real = globalThis.fetch;
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) =>
+      String(url).endsWith('/auth/')
+        ? new Response(null, { status: (init?.headers as Record<string, string>).Authorization === `Token ${TOKEN}` ? 204 : 401 })
+        : real(url, init));
+    try {
+      expect((await as('alice').put('/api/me/readwise').send({ token: 'b'.repeat(40) })).status).toBe(400); // Readwise says no
+      const saved = await as('alice').put('/api/me/readwise').send({ token: TOKEN });
+      expect(saved.status).toBe(200);
+      expect(saved.body.hasReadwise).toBe(true);
+      expect(JSON.stringify(saved.body)).not.toContain(TOKEN);
+      expect(await accounts.readwiseOf('alice')).toBe(TOKEN);
+      expect((await as('bob').post('/api/p/scratch/readwise/search').send({ query: 'turbines' })).body.enabled).toBe(false);
+    } finally {
+      fetch.mockRestore();
+      delete process.env.READWISE_TOKEN;
+    }
   });
 });
 

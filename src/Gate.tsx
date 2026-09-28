@@ -7,7 +7,7 @@ type Me = {
   hosted: true; unlimited: boolean; billing: boolean;
   account: {
     email: string | null; freeParsesUsed: number; hasOwnKey: boolean; keyHint: string | null;
-    balanceMicros: number; subscribed: boolean; hasBilling: boolean;
+    balanceMicros: number; subscribed: boolean; hasBilling: boolean; hasReadwise: boolean;
   };
   pricing: { freeParses: number; markup: number; minCents: number; maxCents: number; fee: { percent: number; cents: number }; donationCents: number };
 };
@@ -53,6 +53,7 @@ export function Gate() {
 
 function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; menu: React.ReactNode }) {
   const [key, setKey] = useState('');
+  const [rw, setRw] = useState('');
   const [amount, setAmount] = useState('5');
   const [error, setError] = useState<string | null>(null);
   const a = me.account;
@@ -83,16 +84,17 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
 
   const pay = (what: 'topup' | 'subscription') => billing.checkout(what, cents).catch((e) => setError(e.message));
 
-  const save = async (remove = false) => {
+  const save = async (remove = false, path = '/api/me/key', body: object = { key }) => {
     setError(null);
-    const res = await fetch('/api/me/key', remove
+    const res = await fetch(path, remove
       ? { method: 'DELETE' }
-      : { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key }) });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) return setError(body.error ?? 'Could not save');
-    setKey('');
-    onChange({ ...me, account: body });
+      : { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const got = await res.json().catch(() => ({}));
+    if (!res.ok) return setError(got.error ?? 'Could not save');
+    setKey(''); setRw('');
+    onChange({ ...me, account: got });
   };
+  const saveReadwise = (remove = false) => save(remove, '/api/me/readwise', { token: rw });
 
   return (
     <div className="app">
@@ -160,6 +162,18 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
           <input type="password" autoComplete="off" placeholder={a.hasOwnKey ? `saved, ending ${a.keyHint}` : 'sk-ant-…'} value={key} onChange={(e) => setKey(e.target.value)} />
           <button className="stage" type="submit" disabled={!key.trim()}>save</button>
           {a.hasOwnKey && <button className="link" type="button" onClick={() => save(true)}>remove key</button>}
+        </form>
+
+        <h2>Your Readwise token</h2>
+        <p className="hint">
+          To bring your highlights and notes into your writing. Get it at{' '}
+          <a href="https://readwise.io/access_token" target="_blank" rel="noreferrer">readwise.io/access_token</a>.
+          Stored encrypted, used only to search and fetch your own highlights, and never shown again.
+        </p>
+        <form onSubmit={(e) => { e.preventDefault(); saveReadwise(); }}>
+          <input type="password" autoComplete="off" placeholder={a.hasReadwise ? 'saved' : 'Readwise access token'} value={rw} onChange={(e) => setRw(e.target.value)} />
+          <button className="stage" type="submit" disabled={!rw.trim()}>save</button>
+          {a.hasReadwise && <button className="link" type="button" onClick={() => saveReadwise(true)}>remove token</button>}
         </form>
         {error && <p className="top-error">{error}</p>}
       </main>

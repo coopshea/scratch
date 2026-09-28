@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import fs from 'node:fs';
 import path from 'node:path';
-import { checkKeyShape, FREE_PARSES, MAX_ACCOUNTS, type Account, type Accounts, type Paid } from './accounts.ts';
+import { checkKeyShape, checkReadwiseShape, FREE_PARSES, MAX_ACCOUNTS, type Account, type Accounts, type Paid } from './accounts.ts';
 import { DONATION_CENTS, MAX_CENTS, MIN_CENTS, STRIPE_FEE, type Billing } from './billing.ts';
 import type { Usage } from './parser.ts';
 import { describeError, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
@@ -417,30 +417,56 @@ export function createApp(hosted?: Hosted): Express {
     res.json(unit);
   }));
 
-  // Readwise uses one server-wide token, so it stays off on the hosted site until tokens are per writer.
-  const readwiseOn = () => !hosted && readwise.enabled();
-  app.get('/api/readwise/status', wrap(async (_req, res) =>
-    res.json(hosted ? { token: false, search: false, error: 'Readwise is not available on the hosted site yet' } : await readwise.check())));
+  // Locally, READWISE_TOKEN from .env. Hosted, only the signed-in writer's own token; never a shared one.
+  const readwiseToken = async (res: Response) => {
+    if (!hosted) return readwise.enabled() ? undefined : null; // undefined: the module reads .env itself
+    const account = accountOf(res);
+    return account ? await hosted.accounts.readwiseOf(account.id) : null;
+  };
+  app.get('/api/readwise/status', wrap(async (_req, res) => {
+    const tok = await readwiseToken(res);
+    res.json(tok === null ? { token: false, search: false, error: hosted ? 'Add your Readwise token on your account page' : 'READWISE_TOKEN is not set in .env' } : await readwise.check(tok));
+  }));
+
+  /** The writer's own Readwise token. Checked with Readwise, then stored encrypted; it never comes back. */
+  app.put('/api/me/readwise', wrap(async (req, res) => {
+    const account = accountOf(res);
+    if (!account || !hosted) throw new HttpError(404, 'Not available locally; the token lives in .env');
+    const tok = String(req.body?.token ?? '').trim();
+    checkReadwiseShape(tok);
+    if (!(await readwise.accepts(tok))) throw new HttpError(400, 'Readwise did not accept that token');
+    await hosted.accounts.setReadwise(account.id, tok);
+    res.json(await hosted.accounts.get(account.id));
+  }));
+
+  app.delete('/api/me/readwise', wrap(async (_req, res) => {
+    const account = accountOf(res);
+    if (!account || !hosted) throw new HttpError(404, 'Not available locally; the token lives in .env');
+    await hosted.accounts.setReadwise(account.id, null);
+    res.json(await hosted.accounts.get(account.id));
+  }));
 
   /** Passages from the writer's own reading that relate to a query. Ones already in the document are left out. */
   app.post('/api/p/:slug/readwise/search', wrap(async (req, res) => {
     const slug = slugOf(req);
-    if (!readwiseOn()) return res.json({ enabled: false, passages: [] });
+    const tok = await readwiseToken(res);
+    if (tok === null) return res.json({ enabled: false, passages: [] });
     const query = String(req.body?.query ?? '').trim().slice(0, 1000);
     if (!query) throw new HttpError(400, 'Query is empty');
     const have = new Set(readUnits(slug).flatMap((u) => (u.source ? [u.source.id] : [])));
-    const passages = (await readwise.search(query, 12)).filter((p) => !have.has(p.id));
+    const passages = (await readwise.search(query, 12, tok)).filter((p) => !have.has(p.id));
     res.json({ enabled: true, passages });
   }));
 
   /** Bring one passage into the document as evidence. The words are fetched from Readwise here, not taken from the client. */
   app.post('/api/p/:slug/readwise/adopt', wrap(async (req, res) => {
     const slug = slugOf(req);
-    if (!readwiseOn()) throw new HttpError(400, 'READWISE_TOKEN is not set in .env');
+    const tok = await readwiseToken(res);
+    if (tok === null) throw new HttpError(400, hosted ? 'Add your Readwise token on your account page' : 'READWISE_TOKEN is not set in .env');
     const id = String(req.body?.id ?? '');
     const existing = readUnits(slug).find((u) => u.source?.id === id);
     if (existing) return res.json(existing);
-    const p = await readwise.getPassage(id);
+    const p = await readwise.getPassage(id, tok);
     const unit = await withLock(slug, () => {
       const units = readUnits(slug);
       const home = req.body?.home ? String(req.body.home) : null;
