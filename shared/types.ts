@@ -6,6 +6,7 @@ export type UnitType = (typeof UNIT_TYPES)[number];
 export const LABEL_MAX_CHARS = 40;
 export const LABEL_MAX_WORDS = 6;
 
+/** 'proposed' is legacy: units from before the review step was dropped. It is treated as accepted. */
 export type UnitStatus = 'proposed' | 'accepted' | 'cut';
 
 export interface Unit {

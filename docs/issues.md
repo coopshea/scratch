@@ -4,6 +4,11 @@ Open work, newest first. Delete an item when it ships; git history keeps the rec
 
 ## Open
 
+### Red pen: one review pass over the draft
+**Added:** 2026-09-28 · **Priority:** later, after the core loop feels right
+
+One button reviews the whole draft on click. Typos are fixed. A `[gap]` or an unsourced factual sentence gets a match from Readwise that can be accepted as a footnote. Factual claims with no match, and wording close to an uncited source, are flagged. There are no fallacy or logic flags. It uses rules where possible and one model call per pass. When there's something to accept, keep the interaction to the fewest possible keys, with no separate review mode.
+
 ### Readwise import: suggested reading, pulled in as sourced units
 **Added:** 2026-09-26 · **Design settled:** 2026-09-27 · **Priority:** high, this is the main input path
 
@@ -29,7 +34,7 @@ Cooper reads and annotates in Readwise. A highlight is the source's words, and a
 - **Search sparingly.** Search only when the title changes or a new claim appears, and cache results. Readwise publishes no rate limit for search. Export is 20/min, and one call covers a whole library.
 - **Re-pull is incremental.** Keep a map from highlight id to unit id, so a re-pull adds only new highlights. A note edited in Readwise after import flags the unit and never overwrites it. A deletion in Readwise flags the unit and never removes it.
 
-**Status (2026-09-27):** The server side is built: `server/readwise.ts`, the `/readwise/status`, `/search` and `/adopt` endpoints, and `npm run check:readwise`. There's no UI yet. Proposed order: frame first (topic, audience, questions), then talk from memory, then opt in to sources, then structure, then draft. Sources come to the writer's claims: each claim is searched in its own words, and one or two candidates appear faintly under it. Nothing is bulk-imported into the map. Next: build that per-claim step, then the Draft reading tray. Labels cut from the first words of a highlight are weak; consider the parser's labeler.
+**Status (2026-09-28):** The server side is built: `server/readwise.ts`, the `/readwise/status`, `/search` and `/adopt` endpoints, and `npm run check:readwise`. **Parked:** the suggestion line, per-claim sources, and the Draft reading tray. The likely first UI is pulling annotations into Talk as blurts. The endpoints are kept. Labels cut from the first words of a highlight are weak; consider the parser's labeler.
 
 **Library as of 2026-09-27:** 505 highlights in 70 articles, all from Reader. 95% of highlights have notes, many of them 200+ characters of dictated thinking. Tags are almost unused, so tag-to-concept mapping isn't worth building.
 
@@ -47,9 +52,6 @@ Each source gets its own module with the same `search / recent / pull` shape as 
 
 Draft now moves an idea to a section when it is placed there as a chip, and a local keyword match flags ideas mentioned by name but not placed ("move here"). The keyword match misses paraphrase. Options, in order of cost: better local similarity (stemming, synonyms from the vocabulary); Claude Haiku on the paragraph at the cursor, debounced; later a small local model. Suggestions only, never automatic, and never text written into the draft.
 
-### Placeholders while drafting
-**Added:** 2026-09-27. Typing `TK` plus a note in the draft creates an evidence stub and keeps the writer writing. `FIG` plus a description creates an artifact stub. Both show as open until filled.
-
 ### Draft back to the board
 **Added:** 2026-09-27. Select text in the draft and make it a unit (origin: draft), so ideas that appear while writing join the graph.
 
@@ -59,8 +61,8 @@ Draft now moves an idea to a section when it is placed there as a chip, and a lo
 ### Thesis "what would change my mind" field
 **Added:** 2026-09-26. The writer's prior, stated before research.
 
-### End-of-draft checks
-**Added:** 2026-09-26. Style lint (rules to be written together), coinage prior-art check, coverage check. All flag only.
+### End-of-draft checks beyond the red pen
+**Added:** 2026-09-26. Style lint (rules to be written together), coinage prior-art check, coverage check. All flag only. When built, these become more red pen item types, not separate buttons.
 
 ### Suggestion actions
 **Added:** 2026-09-26. Find a source, and find a parallel or example. Each produces an empty stub with a headline and one or two links.

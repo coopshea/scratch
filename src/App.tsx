@@ -139,8 +139,7 @@ export function App() {
           ? <History events={history.events} count={history.count} onCount={(count) => setHistory({ ...history, count })}
               units={past.units} selectedId={selectedId} onSelect={setSelectedId} />
           : <Talk units={units} blurts={blurts} busy={busy} error={error} failedBlurtId={failedBlurtId}
-              onBlurt={onBlurt} onReparse={onReparse} onPatch={onPatch} onSelect={setSelectedId} selectedId={selectedId}
-              sheetOpen={!!selected} />}
+              onBlurt={onBlurt} onReparse={onReparse} sheetOpen={!!selected} />}
         <section className="canvas">
           {units.some((u) => u.status !== 'cut')
             ? <Graph units={units} selectedId={selectedId} onSelect={setSelectedId} />

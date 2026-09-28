@@ -69,6 +69,7 @@ Every non-claim unit belongs to one claim or is loose. Units are cut, never dele
 - **Contained d3 force graph, not React Flow.** React Flow is an infinite canvas: clicking a node zoomed to it and lost everything else. Cooper asked for "everything pulled to the center and scaled so it's readable."
 - **Controlled vocabulary.** The parser must reuse an existing label when a unit expresses the same concept. Labels are the join key for clustering and for the future map. They are limited to 6 words and 40 characters, enforced on the server.
 - **One home, many references.** A non-claim unit belongs to one claim or is loose. The same idea can be placed in several sections of the draft by reference.
+- **No review step (2026-09-28).** Parsed units land as accepted, straight into the map. The structure is only a trace and is allowed to be wrong. The writer corrects it by dragging in Structure, and how clusters get stretched there shows where the parse was wrong. Those moves are already in `events.jsonl`, which is the data for tuning the parser later. An approve/reject list, and a keyboard review mode to speed it up, were designed and dropped as friction.
 - **The note editor takes focus on open,** and the blurt box takes it back on close. Cooper dictates, so the cursor must already be blinking where text should land.
 
 ### Structure (page 2)
@@ -84,6 +85,9 @@ Every non-claim unit belongs to one claim or is loose. Units are cut, never dele
 - **Anchors are HTML comments too** (`<!--u:id-->`). They render as quiet chips, and exported markdown stays clean.
 - **The writer's placement wins.** Placing an idea in a section, by drag or double-click, moves it there with no type or slot rules. A local keyword match flags ideas mentioned by name but not placed, and offers "move here". A model or small local model for paraphrase detection is a later option (see issues). It should only ever suggest.
 - **Strikethrough on use, highlight on callback, hover to find.** These run off explicit anchors, never inferred links. Loose semantic linking was too fuzzy in Cooper's past tools.
+
+### Later: the red pen
+- **Evidence, spelling and attribution checks come later,** as one button that reviews the whole draft on click. Gaps are written in square brackets: `[GE9X test hours]`. That is the only place Readwise should touch the draft. Until then, the core is input, structure, then writing. Details are in the issues doc.
 
 ### Export
 - **Clean markdown for a reader.** Section markers drop out. Evidence placed in the text becomes numbered footnotes quoting it. Figures still to make become `*[Figure: …]*`. Other chips disappear, leaving only prose.
@@ -111,7 +115,8 @@ Motivated reasoning (taking a position, then finding evidence) is allowed becaus
 
 - **Direction by use.** He tries the tool, reacts, and sometimes sends a sketch. Build what he describes, verify it in the browser, and report plainly.
 - **"Brainstorm with me" means options plus a recommendation, not a build.** Wait for his pick on anything that changes how the tool feels.
-- **Readwise is the main input path** and the next big feature.
+- **Back to basics (2026-09-28):** talk and get a trace of structure, fix it in Structure, write. Resist designing edge cases. Evidence, spelling and similar checks come later.
+- **Readwise is the main input path.** The server side exists. Pulling annotations into Talk is the likely first UI.
 - **Git.** Commit and push only when asked. The repo is public: `github.com/coopshea/scratch`.
 - **Previews.** Never leave the offline stand-in parser running for him; it looks like a broken parser.
 

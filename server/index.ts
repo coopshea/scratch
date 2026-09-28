@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import { describeError, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
@@ -185,7 +186,7 @@ async function runParse(slug: string, blurt: Blurt) {
         start: loc ? loc[0] : -1,
         end: loc ? loc[1] : -1,
         home,
-        status: 'proposed',
+        status: 'accepted',
         origin: 'human',
         labeledBy: 'model',
         verified: false,
@@ -331,8 +332,10 @@ app.use('/api', (err: unknown, _req: Request, res: Response, _next: NextFunction
   res.status(status).json({ error: (err as Error).message ?? 'Server error' });
 });
 
-const vite = await createViteServer({ server: { middlewareMode: true, hmr: { port: PORT + 20000 } }, appType: 'spa' });
+// Hot reload shares the app's own server, so any PORT works.
+const server = http.createServer(app);
+const vite = await createViteServer({ server: { middlewareMode: true, hmr: { server } }, appType: 'spa' });
 app.use(vite.middlewares);
 
 projectDir('scratch');
-app.listen(PORT, () => console.log(`scratch on http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`scratch on http://localhost:${PORT}`));

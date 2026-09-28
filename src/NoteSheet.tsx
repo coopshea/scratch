@@ -63,7 +63,6 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
       <header className="sheet-head">
         <TypeSelect value={unit.type} onChange={(type) => onPatch(unit.id, { type })} />
         <span className="spacer" />
-        {!readOnly && unit.status === 'proposed' && <button className="link" onClick={() => onPatch(unit.id, { status: 'accepted' })}>keep</button>}
         {!readOnly && <button className="link muted" onClick={() => onPatch(unit.id, { status: 'cut' })}>cut</button>}
         <button className="link muted" onClick={onClose} aria-label="Close">✕</button>
       </header>
