@@ -4,10 +4,17 @@ Open work, newest first. Delete an item when it ships; git history keeps the rec
 
 ## Open
 
-### Plain words for everything the writer sees
+### The interface doesn't say what to do
 **Added:** 2026-09-28 · **Priority:** part of the design process, before more people use the hosted site
 
-Internal words leak into the interface: blurt, parse, unit, cluster, talk, structure. Every name a writer sees should be a plain word they understand without explanation. Settle vocabulary as a design step, the same way layout is settled, and keep the code's internal names (talk/structure/draft, blurts, units) so nothing breaks.
+A new writer opens each stage to a blank space with no idea what goes there or what happens next. The problem is guidance, not the stage names. Fix it without tours or pop-ups: each empty space says, in the app's quiet italic, what goes there, and the words disappear once it has content. A draft of those words:
+
+- **Spill:** the box: "Write everything you think about this, as fast as it comes. Typos and half-thoughts are fine." The button: "cut into ideas ⌘↵". The empty graph: "Your ideas land here as cards, grouped under the point they support." A blurt that yields nothing: "Nothing to cut up here", with no second parse button.
+- **Shape:** "Drag each group onto a level of your outline. Anything left on the right stays out."
+- **Draft:** "Write each section here. Drag an idea from the left into your text, or double-click it, to use it."
+- **Stage names** on hover: get it all out · give it an order · write it.
+
+Related: internal words leak into the interface (blurt, parse, unit, cluster). Every word a writer sees should be plain; the code keeps its internal names (talk/structure/draft, blurts, units) so nothing breaks.
 
 - **Decided:** the stages read **Spill → Shape → Draft**.
 - **Still open:** the parse button (candidates: "cut up", "sort into ideas"), the thing a writer spills (a dump, notes), units (ideas, which Draft already says), clusters (threads, piles), and a blurt that yielded nothing ("nothing to cut up here" instead of a second parse button).
