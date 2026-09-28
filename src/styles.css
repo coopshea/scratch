@@ -133,18 +133,22 @@ select:focus { outline: none; text-decoration: underline; }
 .graph-world .unit .lbl { font-size: 13px; }
 .graph-world .unit .kind { font-size: 10px; opacity: .8; }
 .graph-world .unit.is-claim .lbl { font-size: 17px; }
-.graph-world .unit.clustered { background: var(--paper-2); }
+.graph-world .unit.clustered { background: transparent; }
 .graph-world .unit.solo { opacity: .55; }
 .graph-world .unit.solo:hover, .graph-world .unit.solo.is-selected { opacity: 1; }
-.graph-edges .hull { fill: var(--paper-2); stroke: var(--rule); stroke-width: .6; transition: stroke .2s, opacity .2s; }
-.graph-edges .hull.on { stroke: var(--rule-strong); }
-.graph-edges .hull.dim { opacity: .5; }
-.graph-edges line { opacity: .6; }
-/* Collapsed pieces: a dot says there is more; the +N control on the cluster's corner unfolds them. */
+/* Cluster cards (common region), packed in masonry columns. */
+.graph-world .card { position: absolute; left: 0; top: 0; background: var(--paper-2); border: .6px solid var(--rule); border-radius: 10px; transition: border-color .2s, opacity .2s; }
+.graph-world .card.on { border-color: var(--rule-strong); }
+.graph-world .card.dim { opacity: .5; }
+.graph-world .card.solo-card { background: transparent; border: 0; pointer-events: none; }
+.graph-world.ready { transition: transform .25s ease; }
+.graph-world.ready .unit, .graph-world.ready .card, .graph-world.ready .unfurl { transition: transform .25s ease, opacity .2s, border-color .2s; }
+.graph.pannable { cursor: grab; }
+.graph.panning { cursor: grabbing; }
+/* Collapsed pieces: a dot says there is more; the +N control on the card's corner unfolds them. */
 .graph-world .unit.collapsed { width: 10px; height: 10px; padding: 0; border-radius: 50%; background: var(--c); opacity: .35; }
 .unfurl { position: absolute; left: 0; top: 0; z-index: 6; min-width: 24px; height: 24px; padding: 0 6px; border: 1px solid var(--rule-strong); border-radius: 12px; background: var(--paper); color: var(--ink-soft); font: 12px/22px var(--serif); cursor: pointer; }
 .unfurl:hover, .unfurl.on { border-color: var(--ink-soft); color: var(--ink); }
-.graph-edges line.faint { stroke-dasharray: 1 3; opacity: .5; }
 
 /* history */
 .history { gap: 10px; }
@@ -225,9 +229,11 @@ select:focus { outline: none; text-decoration: underline; }
 .cm-anchor { font-size: 12px; font-variant: small-caps; letter-spacing: .04em; color: var(--ink-soft); border-bottom: 1px dotted var(--pencil); padding: 0 2px; cursor: default; }
 .cm-anchor.callback { background: rgba(168, 116, 26, .14); }
 .page.past { white-space: pre-wrap; padding: 28px 32px; font-size: 18px; line-height: 1.75; color: var(--ink-soft); max-width: 740px; }
-.levels-canvas .unit { opacity: .45; }
+.levels-canvas .unit { opacity: .75; background: transparent; }
 .levels-canvas .unit:hover, .levels-canvas .unit.is-selected, .levels-canvas .unit.is-placed { opacity: 1; }
 .levels-canvas .unit.dim { opacity: .2; }
+.levels-canvas .pool-card { position: absolute; left: 0; top: 0; background: var(--paper-2); border: .6px solid var(--rule); border-radius: 10px; transition: opacity .2s; }
+.levels-canvas .pool-card.dim { opacity: .45; }
 .graph-edges line.thread { stroke-dasharray: 2 4; opacity: .5; }
 .levels-canvas .unit { max-width: 170px; }
 a.stage { text-decoration: none; }

@@ -11,13 +11,14 @@ import { slugify, type Lane, type Role } from '../shared/structures.ts';
 import { UNIT_TYPES } from '../shared/types.ts';
 import { TYPE_INK } from './typeStyle.ts';
 import { rectCollide, resolveOverlaps, type BoxNode } from './collide.ts';
+import { layoutCard, masonry } from './cards.ts';
 
 type SimNode = BoxNode & { claim: boolean };
 type SimLink = { source: string | SimNode; target: string | SimNode; key: string };
 
 const LABEL_W = 180;     // outline column at far left
 const MID = 0.5;        // drop left of this to lock into a level, right of it to release
-const LOCKED_MAX = 0.62; // locked clusters stay left of this
+const LOCKED_MAX = 0.48; // placed rows wrap before this, leaving the right side to the loose pool
 const LOOSE_MIN = 0.5;   // loose clusters float right of this
 const MIN_BAND = 88;
 const MARK = { none: '○', unchecked: '◐', checked: '●' } as const;
@@ -67,7 +68,10 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
    * rejoins that root's line; placed anywhere else, it stands on its own line with a thread back to its root.
    */
   const GAP_X = 18, GAP_Y = 10, LINE_GAP = 22, PAD_Y = 16, LEFT = LABEL_W + 30;
-  const { bandTop, bandHt, totalH, slots } = useMemo(() => {
+  // Layout needs real label sizes: recompute once the nodes for the current content exist in the page.
+  const [measured, setMeasured] = useState(0);
+  useLayoutEffect(() => { setMeasured((n) => n + 1); }, [live]);
+  const { bandTop, bandHt, totalH, slots, poolCards } = useMemo(() => {
     const base = Math.max(MIN_BAND, size.H / lanes.length);
     const right = size.W * LOCKED_MAX;
     const dims = (id: string) => ({ w: nodeEls.current.get(id)?.offsetWidth ?? 140, h: nodeEls.current.get(id)?.offsetHeight ?? 32 });
@@ -97,14 +101,27 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
       heights[li] = Math.max(base, y - LINE_GAP + PAD_Y);
     });
     const bandTop = heights.map((_, i) => heights.slice(0, i).reduce((a, b) => a + b, 0));
-    const slots = new Map<string, { x: number; y: number; band: [number, number] }>();
+    const slots = new Map<string, { x: number; y: number; band?: [number, number] }>();
     local.forEach((m, li) => m.forEach((p, id) => slots.set(id, { x: p.x, y: bandTop[li] + p.y, band: [bandTop[li], bandTop[li] + heights[li]] })));
-    return { bandTop, bandHt: heights, totalH: heights.reduce((a, b) => a + b, 0), slots };
+    // The loose pool: the same cluster cards as Talk, in two masonry columns on the right. Every unplaced root is a
+    // card with its unplaced pieces; a lone root or loose piece is a card of one.
+    const poolLeft = size.W * MID + 24, COL_GAP = 16;
+    const colW = Math.max(180, (size.W - poolLeft - 20 - COL_GAP) / 2);
+    const loose = live.filter((u) => !placedAt.has(u.id) && !(u.home && byId.has(u.home)));
+    const cards = loose.map((r) => ({ id: r.id, ...layoutCard(r.id, live.filter((k) => k.home === r.id && !placedAt.has(k.id)).map((k) => k.id), dims, colW) }));
+    const m = masonry(cards, 2, colW, COL_GAP);
+    const poolCards = cards.map((c) => ({ id: c.id, x: poolLeft + m.at.get(c.id)!.x, y: PAD_Y + m.at.get(c.id)!.y, w: colW, h: c.h }));
+    for (const c of cards) {
+      const at = m.at.get(c.id)!;
+      for (const [id, p] of c.pos) if (!slots.has(id)) slots.set(id, { x: poolLeft + at.x + p.x, y: PAD_Y + at.y + p.y });
+    }
+    const rowsH = heights.reduce((a, b) => a + b, 0);
+    return { bandTop, bandHt: heights, totalH: Math.max(rowsH, m.height + 2 * PAD_Y), slots, poolCards };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lanes, live, placedAt, size.H, size.W]);
+  }, [lanes, live, placedAt, size.H, size.W, measured]);
 
-  const edges = useMemo(() => live.filter((u) => u.home && byId.has(u.home) && !placedAt.has(u.id) && !placedAt.has(u.home))
-    .map((u) => ({ key: `${u.home}-${u.id}`, source: u.home!, target: u.id })), [live, byId, placedAt]);
+  // Every cluster is shown by its layout (a row line, or a pool card), so no lines are drawn inside clusters.
+  const edges = useMemo(() => [] as { key: string; source: string; target: string }[], []);
   /** Units pulled out of their cluster keep a faint thread back to their claim; it does not pull them. */
   const threads = useMemo(() => live.filter((u) => u.home && byId.has(u.home) && placedAt.has(u.id)
       && placedAt.get(u.home)?.lane !== placedAt.get(u.id)!.lane)
@@ -203,7 +220,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
   useLayoutEffect(() => {
     const s = sim.current; if (!s) return;
     const t = new Map<string, { x: number; y: number; placed: boolean; band?: [number, number] }>();
-    for (const [id, p] of slots) t.set(id, { x: p.x, y: p.y, placed: true, band: p.band });
+    for (const [id, p] of slots) t.set(id, { x: p.x, y: p.y, placed: !!p.band, band: p.band });
     const pool = { x: size.W * 0.78, y: totalH / 2, placed: false };
     for (const u of live) if (!t.has(u.id) && rootOf(u).id === u.id) t.set(u.id, pool);
     for (const u of live) {
@@ -393,6 +410,10 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
             </div>
           )}
           {hoverBand !== undefined && dragOn && <div className="pool-edge" style={{ left: poolX, height: totalH }} />}
+          {poolCards.map((c) => (
+            <div key={`pc-${c.id}`} className={`pool-card ${selRoot !== null && c.id !== selRoot ? 'dim' : ''}`}
+              style={{ transform: `translate(${c.x}px, ${c.y}px)`, width: c.w, height: c.h }} />
+          ))}
           <svg className="graph-edges" aria-hidden>
             {edges.map((e) => <line key={e.key} ref={(el) => { if (el) edgeEls.current.set(e.key, el); else edgeEls.current.delete(e.key); }} />)}
             {threads.map((e) => <line key={e.key} className="thread" ref={(el) => { if (el) edgeEls.current.set(e.key, el); else edgeEls.current.delete(e.key); }} />)}

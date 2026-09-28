@@ -51,7 +51,7 @@ Every non-claim unit belongs to one claim or is loose. Units are cut, never dele
 
 **4. If it isn't clear from using it, it isn't clear.** No helper copy, no instructions on screen, no legends. Cooper removed "Fix types, labels, and homes. The words are yours and stay as written" and the color legend on sight. Put meaning in the design (small-caps type words on nodes, ink versus faint), not in sentences.
 
-**5. Everything stays visible.** No infinite canvas and no trips across a zoomed-out map. The Talk graph pulls toward the center and rescales to fit the pane. Selecting a node never moves the view; it dims the rest and opens the note beside the graph. No two nodes ever overlap. That is a hard rule, enforced with a final pass every frame.
+**5. Everything stays readable.** Text never shrinks below a readable floor. The Talk map fills the pane when it can; when even the floor overflows, the map pans (drag the background, or scroll) rather than shrinking. This replaced the earlier "no infinite canvas" rule on 2026-09-28, because with ten times the clusters, fitting everything meant unreadable text. Selecting a node never moves the view; it dims the rest and opens the note beside the map. No two nodes ever overlap.
 
 **6. Honest provenance.** Every mutation goes through the server and is appended to `events.jsonl` with its author: `human`, `model`, or `system`. Automatic moves are logged as `system`, so history never credits Cooper with something the tool did. History is read-only replay with no restore button. Cut things disappear from the working view but stay in history. Model-origin units are `origin: model, verified: false` until Cooper fills and verifies them. Evidence found after a position was taken should be labeled as such (not built yet).
 
@@ -66,7 +66,7 @@ Every non-claim unit belongs to one claim or is loose. Units are cut, never dele
 ## Decisions, and the reasons behind them
 
 ### Talk
-- **Contained d3 force graph, not React Flow.** React Flow is an infinite canvas: clicking a node zoomed to it and lost everything else. Cooper asked for "everything pulled to the center and scaled so it's readable."
+- **Cluster cards in masonry, not a force graph (2026-09-28).** Where a cluster sat relative to other clusters meant nothing: the physics only pushed clusters apart, and it cost jiggle, drift and dead space (the blob rarely matched the pane, so text shrank). Now each cluster is a card (root on top, pieces flowing beneath), packed into masonry columns chosen to fill the pane at the largest scale. Lone roots and loose pieces are a muted column on the right. Unfolding a card (+N) keeps the columns and scale, so only cards below it move. React Flow was rejected earlier for the same reason: it zoomed to a node and lost everything else.
 - **Controlled vocabulary.** The parser must reuse an existing label when a unit expresses the same concept. Labels are the join key for clustering and for the future map. They are limited to 6 words and 40 characters, enforced on the server.
 - **One home, many references.** A non-claim unit belongs to one claim or is loose. The same idea can be placed in several sections of the draft by reference.
 - **No review step (2026-09-28).** Parsed units land as accepted, straight into the map. The structure is only a trace and is allowed to be wrong. The writer corrects it by dragging in Structure, and how clusters get stretched there shows where the parse was wrong. Those moves are already in `events.jsonl`, which is the data for tuning the parser later. An approve/reject list, and a keyboard review mode to speed it up, were designed and dropped as friction.
@@ -82,6 +82,8 @@ Every non-claim unit belongs to one claim or is loose. Units are cut, never dele
 - **Levels grow** to fit what is placed in them. Placed claims pin to the top of their level so their children stack below.
 - **Outlines.** Paper, persuasive, and teaching are templates. The first edit to a built-in saves the writer's own copy ("my paper") with every placement carried over. The "+" under the level names opens an editable combobox: type to filter, Tab takes the top match, Enter keeps exactly what was typed. Common levels number themselves (argument 4). Don't subdivide levels further; an argument level holding its claim, evidence, and objections is already the subitem structure. Custom outlines are stored in `projects/_archetypes.json`, shared across documents.
 - **Support marks on claims** are mechanical, never a model's opinion: ○ no evidence, ◐ evidence not checked or no objection, ● checked evidence plus an objection.
+
+- **Structure uses the same cards (2026-09-28).** The loose pool on the right is two masonry columns of cluster cards; the placed rows on the left keep one line per cluster and wrap before the pool.
 
 ### Draft (page 3)
 - **Aligned rows plus cursor follow.** The draft holds `<!--s:lane-->` section markers, rendered as dashed rules across both columns. Each outline section sits level with its text, and whichever side is shorter gets a spacer. The section holding the cursor is highlighted. This comes from the sketch, where the divider under "hook" crosses into the editor.
