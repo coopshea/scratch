@@ -29,19 +29,21 @@ type Props = {
   onBoard: (b: Board) => void;
   onSelect: (id: string | null) => void;
   selectedId: string | null;
-  onNext: () => void;
   readOnly?: boolean;
   structures: Record<string, StructureDef>;
   onCustom: (list: StructureDef[]) => void;
 };
 
-export function Structure({ units, board, onBoard, onSelect, selectedId, onNext, readOnly = false, structures, onCustom }: Props) {
+export function Structure({ units, board, onBoard, onSelect, selectedId, readOnly = false, structures, onCustom }: Props) {
   const live = useMemo(() => units.filter((u) => u.status !== 'cut'), [units]);
   const byId = useMemo(() => new Map(live.map((u) => [u.id, u])), [live]);
   const sid = board.structure;
   const def = structures[sid] ?? STRUCTURES.persuasive;
   const lanes = def.lanes;
   const [adding, setAdding] = useState(false);
+  const [insertAt, setInsertAt] = useState<number | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [reorder, setReorder] = useState<{ from: number; to: number } | null>(null);
   const [dialog, setDialog] = useState<{ id?: string; name: string; outline: string; error?: string } | null>(null);
   const assign = board.lanes[sid] ?? {};
 
@@ -106,10 +108,12 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
     // The loose pool: the same cluster cards as Talk, in two masonry columns on the right. Every unplaced root is a
     // card with its unplaced pieces; a lone root or loose piece is a card of one.
     const poolLeft = size.W * MID + 24, COL_GAP = 16;
-    const colW = Math.max(180, (size.W - poolLeft - 20 - COL_GAP) / 2);
+    const room = size.W - poolLeft - 20;
+    const poolCols = room >= 2 * 180 + COL_GAP ? 2 : 1;
+    const colW = Math.max(160, (room - (poolCols - 1) * COL_GAP) / poolCols);
     const loose = live.filter((u) => !placedAt.has(u.id) && !(u.home && byId.has(u.home)));
     const cards = loose.map((r) => ({ id: r.id, ...layoutCard(r.id, live.filter((k) => k.home === r.id && !placedAt.has(k.id)).map((k) => k.id), dims, colW) }));
-    const m = masonry(cards, 2, colW, COL_GAP);
+    const m = masonry(cards, poolCols, colW, COL_GAP);
     const poolCards = cards.map((c) => ({ id: c.id, x: poolLeft + m.at.get(c.id)!.x, y: PAD_Y + m.at.get(c.id)!.y, w: colW, h: c.h }));
     for (const c of cards) {
       const at = m.at.get(c.id)!;
@@ -291,13 +295,42 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
       const p = canvasPoint(ev);
       if (!moved && Math.hypot(p.x - start.x, p.y - start.y) < 4) return;
       if (!moved) { moved = true; dragging.current = id; setDragOn(true); sim.current!.alphaTarget(0.25).restart(); }
+      last = ev;
+      follow();
+      edgeScroll();
+    };
+    // The dragged item follows the pointer in canvas coordinates, which change as the pane scrolls under it.
+    let last: { clientX: number; clientY: number } = e;
+    const follow = () => {
+      const p = canvasPoint(last);
       n.fx = ox + p.x - start.x; n.fy = oy + p.y - start.y;
       setHoverBand(p.x < poolX ? { i: bandAt(p.y), ok: true } : null);
+    };
+    // Auto-scroll: holding the pointer near the top or bottom edge scrolls the pane, faster the closer it is.
+    // A 60 Hz timer, not animation frames: frames pause in background tabs, a timer keeps going.
+    let timer = 0;
+    const EDGE = 70, MAX = 16;
+    const edgeScroll = () => {
+      if (timer) return;
+      const step = () => {
+        const box = boxRef.current; timer = 0;
+        if (!box || !dragging.current) return;
+        const r = box.getBoundingClientRect();
+        const near = last.clientY < r.top + EDGE ? -(1 - (last.clientY - r.top) / EDGE) : last.clientY > r.bottom - EDGE ? 1 - (r.bottom - last.clientY) / EDGE : 0;
+        if (!near) return;
+        const before = box.scrollTop;
+        box.scrollTop += Math.sign(near) * Math.ceil(MAX * Math.min(1, Math.abs(near)) ** 2);
+        if (box.scrollTop === before) return; // at the end: stop
+        follow();
+        timer = window.setTimeout(step, 16);
+      };
+      timer = window.setTimeout(step, 16);
     };
     const up = (ev: PointerEvent) => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
       dragging.current = null;
+      window.clearTimeout(timer); timer = 0;
       setHoverBand(null);
       setDragOn(false);
       const slot = slots.get(id);
@@ -335,23 +368,105 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
   };
 
   /** Add a level where the outline lives. Built-in outlines are templates: the first edit saves the writer's own copy. */
-  const addLevel = async (name: string, role: Role = 'point') => {
-    setAdding(false);
+  /**
+   * Save an edited list of levels. Your own outline is updated in place; a built-in's first edit saves your own copy
+   * with every placement carried over. `dropLane` is a removed level, whose placements return to the pool.
+   */
+  const commitLanes = async (next: Lane[], dropLane?: string) => {
+    try {
+      const saved = await archetypes.save(def.custom ? { id: def.id, name: def.name, lanes: next } : { name: copyName(), lanes: next });
+      onCustom(await archetypes.list());
+      if (saved.id !== sid || dropLane) {
+        const carried = Object.fromEntries(Object.entries(board.lanes[sid] ?? {}).filter(([k]) => k !== dropLane));
+        onBoard({ structure: saved.id, lanes: { ...board.lanes, [saved.id]: carried } });
+      }
+    } catch (e) { setDialog({ name: def.name, outline: '', error: (e as Error).message }); }
+  };
+
+  /** Add a level: at `at` if given (inserted from a divider), else next to its own kind, before the closing levels. */
+  const addLevel = async (name: string, role: Role = 'point', at?: number) => {
+    setAdding(false); setInsertAt(null);
     const clean = name.trim().toLowerCase();
     if (!clean || readOnly) return;
     let id = slugify(clean) || 'level';
     for (let i = 2; lanes.some((l) => l.id === id); i++) id = `${slugify(clean) || 'level'}-${i}`;
     const lane: Lane = { id, name: clean, role, accepts: [...UNIT_TYPES], single: false, required: false };
-    // Next to its own kind (argument 4 after argument 3); otherwise before the closing levels.
     const sameKind = lanes.map((l) => l.role).lastIndexOf(role);
     const closing = lanes.findIndex((l) => l.role === 'close' || l.role === 'footnote');
-    const at = role === 'footnote' ? lanes.length : sameKind >= 0 ? sameKind + 1 : closing >= 0 ? closing : lanes.length;
-    const next = [...lanes.slice(0, at), lane, ...lanes.slice(at)];
-    try {
-      const saved = await archetypes.save(def.custom ? { id: def.id, name: def.name, lanes: next } : { name: `my ${def.name}`, lanes: next });
-      onCustom(await archetypes.list());
-      if (saved.id !== sid) onBoard({ structure: saved.id, lanes: { ...board.lanes, [saved.id]: { ...(board.lanes[sid] ?? {}) } } });
-    } catch (e) { setDialog({ name: def.name, outline: '', error: (e as Error).message }); }
+    const pos = at ?? (role === 'footnote' ? lanes.length : sameKind >= 0 ? sameKind + 1 : closing >= 0 ? closing : lanes.length);
+    await commitLanes([...lanes.slice(0, pos), lane, ...lanes.slice(pos)]);
+  };
+
+  /**
+   * Press a level's name: a click renames it, a drag reorders it. While dragging, a line shows where it will land.
+   * Levels keep their ids, so everything placed in them moves with them.
+   */
+  const pressLevel = (e: React.PointerEvent, from: number) => {
+    e.stopPropagation();
+    if (readOnly) return;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    let to: number | null = null;
+    const slotAt = (y: number) => {
+      const i = bandTop.findIndex((t, k) => y < t + bandHt[k] / 2);
+      return i < 0 ? lanes.length : i;
+    };
+    const move = (ev: PointerEvent) => {
+      if (to === null && Math.abs(ev.clientY - startY) < 5) return;
+      to = slotAt(canvasPoint(ev).y);
+      setReorder({ from, to });
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up);
+      setReorder(null);
+      if (to === null) { setRenaming(lanes[from].id); return; }
+      if (to === from || to === from + 1) return;
+      const next = [...lanes];
+      const [moved] = next.splice(from, 1);
+      next.splice(to > from ? to - 1 : to, 0, moved);
+      commitLanes(next);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+  };
+
+  /** Rename a level in place. It keeps its id, so everything placed in it stays. */
+  const renameLevel = async (laneId: string, name: string) => {
+    setRenaming(null);
+    const clean = name.trim().toLowerCase().slice(0, 60);
+    const lane = lanes.find((l) => l.id === laneId);
+    if (!clean || !lane || clean === lane.name || readOnly) return;
+    await commitLanes(lanes.map((l) => (l.id === laneId ? { ...l, name: clean } : l)));
+  };
+
+  /** The name for your own copy of a built-in: "my paper", then "my paper 2" if that is taken. */
+  const copyName = () => {
+    const taken = new Set(Object.values(structures).map((s) => s.name));
+    let name = `my ${def.name}`;
+    for (let i = 2; taken.has(name); i++) name = `my ${def.name} ${i}`;
+    return name;
+  };
+
+  /** Removing a whole outline asks twice: the × turns into "delete?" for a few seconds. Built-ins are templates and stay. */
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const confirmTimer = useRef<number | undefined>(undefined);
+  const askRemoveOutline = (id: string) => {
+    window.clearTimeout(confirmTimer.current);
+    if (confirming === id) { setConfirming(null); removeOutlineId(id); return; }
+    setConfirming(id);
+    confirmTimer.current = window.setTimeout(() => setConfirming(null), 3000);
+  };
+  const removeOutlineId = async (id: string) => {
+    await archetypes.remove(id);
+    onCustom(await archetypes.list());
+    if (sid === id) onBoard({ ...board, structure: 'persuasive' });
+  };
+
+  /** Remove a level, no confirmation: levels are cheap to recreate. Whatever was placed there returns to the pool. */
+  const removeLevel = async (laneId: string) => {
+    if (readOnly || lanes.length <= 1) return;
+    await commitLanes(lanes.filter((l) => l.id !== laneId), laneId);
   };
 
   const removeOutline = async () => {
@@ -369,13 +484,17 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
     <div className="structure">
       <nav className="structure-bar">
         {Object.values(structures).map((s) => (
-          <button key={s.id} className={`stage ${s.id === sid ? 'on' : ''}`} onClick={() => switchTo(s.id)}
-            onDoubleClick={() => s.custom && !readOnly && setDialog({ id: s.id, name: s.name, outline: s.lanes.map((l) => l.name).join('\n') })}
-            title={s.custom ? 'double-click to edit' : undefined}>{s.name}</button>
+          <span key={s.id} className="outline-tab">
+            <button className={`stage ${s.id === sid ? 'on' : ''}`} onClick={() => switchTo(s.id)}
+              onDoubleClick={() => s.custom && !readOnly && setDialog({ id: s.id, name: s.name, outline: s.lanes.map((l) => l.name).join('\n') })}>{s.name}</button>
+            {s.custom && !readOnly && (
+              <button className={`remove ${confirming === s.id ? 'confirm' : ''}`} aria-label={confirming === s.id ? `Confirm delete ${s.name}` : `Remove ${s.name}`}
+                onClick={() => askRemoveOutline(s.id)}>{confirming === s.id ? 'delete?' : '×'}</button>
+            )}
+          </span>
         ))}
         {!readOnly && <button className="stage add" onClick={() => setDialog({ name: '', outline: '' })} aria-label="Make your own outline">+</button>}
         <span className="spacer" />
-        {!readOnly && <button className="link" onClick={onNext}>draft →</button>}
       </nav>
       {dialog && (
         <div className="outline-dialog" onKeyDown={(e) => { if (e.key === 'Escape') setDialog(null); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveOutline(); }}>
@@ -397,8 +516,33 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
             const filled = (assign[l.id] ?? []).some((id) => byId.has(id));
             const hb = hoverBand?.i === i ? (hoverBand.ok ? 'accept' : 'reject') : '';
             return (
-              <div key={l.id} className={`level ${hb}`} style={{ top: bandTop[i], height: bandHt[i] }}>
-                <span className={`level-name ${l.required && !filled ? 'gap' : ''}`} style={{ top: 34 }} title={l.accepts.join(', ')}>{l.name}</span>
+              <div key={l.id} className={`level ${hb}`} style={{ top: bandTop[i], height: bandHt[i], right: 'auto', width: poolX }}>
+                {/* The level's own controls live in this zone around its name, and only show while the pointer is in it. */}
+                <div className="level-head">
+                <span className={`level-name ${l.required && !filled ? 'gap' : ''}`} style={{ top: 34 }} onPointerDown={(e) => e.stopPropagation()}>
+                  {renaming === l.id
+                    ? <input className="level-rename" defaultValue={l.name} autoFocus spellCheck onFocus={(e) => e.currentTarget.select()}
+                        onBlur={(e) => renameLevel(l.id, e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); if (e.key === 'Escape') setRenaming(null); }} />
+                    : (() => {
+                        // The × is glued to the last word, so it ends whichever line the name ends on.
+                        const words = l.name.split(' '), last = words.pop();
+                        return (
+                          <span className={`level-label ${reorder?.from === i ? 'moving' : ''}`} onPointerDown={(e) => pressLevel(e, i)}>
+                            {words.length ? `${words.join(' ')} ` : ''}
+                            <span className="glue">{last}{!readOnly && lanes.length > 1 && (
+                              <button className="remove" aria-label={`Remove ${l.name}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => removeLevel(l.id)}>×</button>
+                            )}</span>
+                          </span>
+                        );
+                      })()}
+                </span>
+                {!readOnly && (insertAt === i
+                  ? <div className="level-insert-picker" onPointerDown={(e) => e.stopPropagation()}>
+                      <LevelPicker existing={lanes.map((x) => x.name)} onPick={(name, role) => addLevel(name, role, i)} onCancel={() => setInsertAt(null)} />
+                    </div>
+                  : <button className={`level-insert ${i === 0 ? 'first' : ''}`} aria-label={`Insert a level above ${l.name}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => setInsertAt(i)} />)}
+                </div>
               </div>
             );
           })}
@@ -410,6 +554,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
             </div>
           )}
           {hoverBand !== undefined && dragOn && <div className="pool-edge" style={{ left: poolX, height: totalH }} />}
+          {reorder && <div className="level-drop-line" style={{ top: reorder.to < lanes.length ? bandTop[reorder.to] : bandTop[lanes.length - 1] + bandHt[lanes.length - 1], width: poolX }} />}
           {poolCards.map((c) => (
             <div key={`pc-${c.id}`} className={`pool-card ${selRoot !== null && c.id !== selRoot ? 'dim' : ''}`}
               style={{ transform: `translate(${c.x}px, ${c.y}px)`, width: c.w, height: c.h }} />
