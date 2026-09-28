@@ -1,12 +1,13 @@
-import 'dotenv/config';
 import express from 'express';
 import http from 'node:http';
 import path from 'node:path';
 import { createApp, type Hosted } from './app.ts';
 import { projectDir } from './store.ts';
 
-const PORT = Number(process.env.PORT ?? 5178);
 const production = process.env.NODE_ENV === 'production';
+// Local keys come from .env. Production reads only the host's variables, so a stray .env can never supply personal keys.
+if (!production) await import('dotenv/config');
+const PORT = Number(process.env.PORT ?? 5178);
 
 /** Hosted when Clerk is configured: sign-in, one folder per writer, accounts in Postgres. Otherwise the local app. */
 async function hosting(): Promise<Hosted | undefined> {
