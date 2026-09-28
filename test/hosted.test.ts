@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import request from 'supertest';
+import Stripe from 'stripe';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Express } from 'express';
 import { tempDataDir } from './helpers.ts';
@@ -7,21 +8,36 @@ import { tempDataDir } from './helpers.ts';
 // The hosted site with a stand-in for Clerk: the signed-in writer is whoever the x-test-user header names.
 process.env.SCRATCH_DATA = tempDataDir();
 process.env.PARSER = 'offline';
-process.env.MAX_ACCOUNTS = '4';
+process.env.MAX_ACCOUNTS = '5';
 process.env.ADMIN_EMAILS = 'Owner@example.com';
 process.env.KEY_ENCRYPTION_SECRET = crypto.randomBytes(32).toString('base64');
 delete process.env.READWISE_TOKEN;
+
+// Stripe without the network: checkout and portal pages are stand-ins; the webhook runs the real signature check.
+const WHSEC = 'whsec_test_' + crypto.randomBytes(16).toString('hex');
+const signer = new Stripe('sk_test_not_used');
+const signed = (event: object) => {
+  const payload = JSON.stringify(event);
+  return { payload, header: signer.webhooks.generateTestHeaderString({ payload, secret: WHSEC }) };
+};
 
 let app: Express;
 let accounts: import('../server/accounts.ts').MemoryAccounts;
 beforeAll(async () => {
   const { createApp } = await import('../server/app.ts');
   const { MemoryAccounts } = await import('../server/accounts.ts');
+  const { StripeBilling } = await import('../server/billing.ts');
   accounts = new MemoryAccounts();
+  const stripe = new StripeBilling(accounts, 'sk_test_not_used', 'price_test', WHSEC);
   app = createApp({
     userId: (req) => req.header('x-test-user') ?? null,
     email: async (id) => `${id}@example.com`,
     accounts,
+    billing: {
+      checkoutUrl: async (a) => `https://checkout.stripe.test/${a.id}`,
+      portalUrl: async (a) => `https://billing.stripe.test/${a.id}`,
+      webhook: (raw, sig) => stripe.webhook(raw, sig),
+    },
   });
 });
 
@@ -57,7 +73,8 @@ describe('hosted: sign-in and accounts', () => {
 
   it('admits only MAX_ACCOUNTS writers', async () => {
     expect((await as('carol').get('/api/me')).status).toBe(200);
-    expect((await as('owner').get('/api/me')).status).toBe(200); // alice, bob, carol, owner
+    expect((await as('owner').get('/api/me')).status).toBe(200);
+    expect((await as('erin').get('/api/me')).status).toBe(200); // alice, bob, carol, owner, erin
     const dave = await as('dave').get('/api/me');
     expect(dave.status).toBe(403);
     expect(dave.body.error).toMatch(/full/);
@@ -86,9 +103,11 @@ describe('hosted: free parses and own keys', () => {
     expect((await as('carol').post(`/api/p/${slug}/blurts`).send({ text: 'With my own key.' })).status).toBe(200);
   });
 
-  it('caps blurt length', async () => {
-    const res = await as('carol').post('/api/p/scratch/blurts').send({ text: 'x'.repeat(20_001) });
+  it('caps blurts at 5 pages on the free plan, keeps the blurt, and offers Pro', async () => {
+    const res = await as('carol').post('/api/p/scratch/blurts').send({ text: 'x'.repeat(14_001) });
     expect(res.status).toBe(413);
+    expect(res.body.upgrade).toBe(true);
+    expect(res.body.blurt.text.length).toBe(14_001);
   });
 
   it('rate limits parses per writer', async () => {
@@ -112,6 +131,51 @@ describe('hosted: owners', () => {
     expect((await as('owner').get('/api/me')).body.account.freeParsesUsed).toBe(0);
     expect((await as('owner').post('/api/p/scratch/blurts').send({ text: 'y. '.repeat(8_000) })).status).toBe(200);
     expect((await as('carol').get('/api/me')).body.unlimited).toBe(false);
+  });
+});
+
+describe('hosted: Pro through Stripe', () => {
+  const event = (type: string, object: object) => ({ id: 'evt_1', object: 'event', type, data: { object } });
+  const post = (e: object, header?: string) => {
+    const { payload, header: good } = signed(e);
+    return request(app).post('/stripe/webhook').set('stripe-signature', header ?? good).set('content-type', 'application/json').send(payload);
+  };
+
+  it('refuses a free blurt over 5 pages before spending a free parse', async () => {
+    const res = await as('erin').post('/api/p/scratch/blurts').send({ text: 'z'.repeat(14_001) });
+    expect(res.status).toBe(413);
+    expect(res.body.upgrade).toBe(true);
+    expect((await as('erin').get('/api/me')).body.account.freeParsesUsed).toBe(0);
+  });
+
+  it('sends a free writer to Stripe Checkout', async () => {
+    const res = await as('erin').post('/api/billing/checkout');
+    expect(res.body.url).toBe('https://checkout.stripe.test/erin');
+  });
+
+  it('ignores webhooks without a valid Stripe signature', async () => {
+    const e = event('checkout.session.completed', { client_reference_id: 'erin', customer: 'cus_erin', mode: 'subscription', status: 'complete' });
+    expect((await post(e, 't=1,v1=forged')).status).toBe(400);
+    expect((await as('erin').get('/api/me')).body.account.pro).toBe(false);
+  });
+
+  it('switches Pro on after checkout: 10-page blurts, parses on the Pro allowance', async () => {
+    const e = event('checkout.session.completed', { client_reference_id: 'erin', customer: 'cus_erin', mode: 'subscription', status: 'complete' });
+    expect((await post(e)).status).toBe(200);
+    expect((await as('erin').get('/api/me')).body.account.pro).toBe(true);
+    expect((await as('erin').post('/api/p/scratch/blurts').send({ text: 'Long one. '.repeat(1_500) })).status).toBe(200);
+    const tooLong = await as('erin').post('/api/p/scratch/blurts').send({ text: 'z'.repeat(28_001) });
+    expect(tooLong.status).toBe(413);
+    expect(tooLong.body.upgrade).toBeUndefined();
+    const me = (await as('erin').get('/api/me')).body.account;
+    expect(me.proParsesThisMonth).toBe(1);
+    expect(me.freeParsesUsed).toBe(0);
+    expect((await as('erin').post('/api/billing/checkout')).body.url).toBe('https://billing.stripe.test/erin'); // Pro: manage, not buy again
+  });
+
+  it('switches Pro off when the subscription ends', async () => {
+    expect((await post(event('customer.subscription.deleted', { customer: 'cus_erin', status: 'canceled' }))).status).toBe(200);
+    expect((await as('erin').get('/api/me')).body.account.pro).toBe(false);
   });
 });
 

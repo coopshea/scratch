@@ -15,7 +15,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export type ParseResponse = { blurt: Blurt; units: Unit[]; error?: string };
+export type ParseResponse = { blurt: Blurt; units: Unit[]; error?: string; upgrade?: boolean };
 
 export const api = {
   load: () => call<Project>(''),
@@ -54,3 +54,15 @@ export const archetypes = {
   },
   remove: async (id: string) => { await fetch(`/api/archetypes/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
 };
+
+/** Hosted only: Stripe's own pages for subscribing to Pro and for managing it. */
+export const billing = {
+  checkout: () => goTo('/api/billing/checkout'),
+  portal: () => goTo('/api/billing/portal'),
+};
+async function goTo(path: string) {
+  const res = await fetch(path, { method: 'POST' });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.url) throw new Error(body.error ?? 'Could not open billing');
+  location.href = body.url;
+}

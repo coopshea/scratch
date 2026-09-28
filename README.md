@@ -18,9 +18,10 @@ Open http://localhost:5178. Add `?p=<slug>` to switch projects; the default is `
 The hosted site is the same app with sign-in turned on. It turns on when `CLERK_SECRET_KEY` is set; without it, everything below works as a local tool.
 
 - **Sign-in:** Clerk. The server checks the session on every `/api` and `/projects` request.
-- **Accounts:** Postgres, one `accounts` table (`server/accounts.ts`). Only the first `MAX_ACCOUNTS` (50) writers are admitted. Each gets `FREE_PARSES` (2) parses on the server's key, then adds their own Anthropic key on the account page (`?account`). Keys are stored encrypted with `KEY_ENCRYPTION_SECRET` and never sent back to the browser.
+- **Accounts:** Postgres, one `accounts` table (`server/accounts.ts`). Only the first `MAX_ACCOUNTS` (50) writers are admitted. Own Anthropic keys are stored encrypted with `KEY_ENCRYPTION_SECRET` and never sent back to the browser. `ADMIN_EMAILS` are exempt from every limit below.
+- **Plans:** Free parses blurts up to 5 pages (14,000 characters): `FREE_PARSES` (2) on the site's key, then the writer's own key. Pro (`server/billing.ts`, Stripe, monthly) parses up to 10 pages, `PRO_MONTHLY_PARSES` (200) a month on the site's key. Past a limit Pro lifts, the blurt is saved and the page offers Stripe Checkout. The webhook at `/stripe/webhook` switches Pro on and off; cancelling happens on Stripe's own billing page. Pro stops at 10 pages because the parser returns every word verbatim within one response's output ceiling.
 - **Writing:** still files, one folder per writer at `$SCRATCH_DATA/u/<clerk user id>/`, on a Railway volume.
-- **Limits:** 600 requests a minute per address, 300 per writer, 6 parses a minute and 100 a day per writer, 60 uploads and 60 new documents an hour, 20,000 characters per blurt.
+- **Limits:** 600 requests a minute per address, 300 per writer, 6 parses a minute and 100 a day per writer, 60 uploads and 60 new documents an hour.
 - **Off when hosted:** Readwise, because its token is shared.
 
 `npm run build` then `npm start` runs the production server. It refuses to start without `CLERK_SECRET_KEY` and `DATABASE_URL`.

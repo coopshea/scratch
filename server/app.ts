@@ -3,7 +3,8 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import fs from 'node:fs';
 import path from 'node:path';
-import { checkKeyShape, FREE_PARSES, MAX_ACCOUNTS, type Account, type Accounts } from './accounts.ts';
+import { checkKeyShape, FREE_PARSES, MAX_ACCOUNTS, PRO_MONTHLY_PARSES, type Account, type Accounts, type Paid } from './accounts.ts';
+import type { Billing } from './billing.ts';
 import { describeError, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
 import {
   appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
@@ -27,9 +28,20 @@ export type Hosted = {
   accounts: Accounts;
   /** Middleware that reads the session before userId is asked, e.g. clerkMiddleware(). */
   session?: express.RequestHandler;
+  /** Pro through Stripe. Without it there is no upgrade, only the writer's own key. */
+  billing?: Billing;
 };
 
-const BLURT_MAX = 20_000; // characters; hosted only, to bound what one parse can cost
+// Blurt sizes, hosted only. A page is about 500 words, about 2,800 characters. Pro stops at 10 pages because the
+// parser copies every word back verbatim, and one response has an output ceiling.
+export const FREE_BLURT_MAX = 14_000; // 5 pages
+export const PRO_BLURT_MAX = 28_000; // 10 pages
+const SAVE_MAX = 200_000; // not even saved beyond this
+
+/** A limit that Pro lifts. The response carries `upgrade` so the page can offer Stripe. */
+class PlanLimit extends HttpError {
+  constructor(status: number, message: string, public upgrade: boolean) { super(status, message); }
+}
 
 /** The site's owners (ADMIN_EMAILS, comma-separated): no per-writer rate limits, no free-parse quota, no blurt cap. */
 const admins = () => new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
@@ -42,6 +54,16 @@ export function createApp(hosted?: Hosted): Express {
     (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).catch(next);
   const slugOf = (req: Request) => String(req.params.slug);
   const accountOf = (res: Response) => res.locals.account as Account | undefined;
+  const origin = (req: Request) => process.env.PUBLIC_URL?.replace(/\/$/, '') ?? `${req.protocol}://${req.get('host')}`;
+
+  if (hosted?.billing) {
+    // Before the JSON parser and outside sign-in: Stripe calls this, and its signature is checked on the raw body.
+    const billing = hosted.billing;
+    app.post('/stripe/webhook', express.raw({ type: () => true, limit: '1mb' }), wrap(async (req, res) => {
+      await billing.webhook(req.body as Buffer, String(req.header('stripe-signature') ?? ''));
+      res.json({ received: true });
+    }));
+  }
 
   if (hosted) {
     app.set('trust proxy', 1); // one proxy in front (Railway), so rate limits see the real client address
@@ -79,7 +101,24 @@ export function createApp(hosted?: Hosted): Express {
 
   app.get('/api/me', wrap((_req, res) => {
     const account = accountOf(res);
-    res.json(account ? { hosted: true, account, freeParses: FREE_PARSES, unlimited: isAdmin(account) } : { hosted: false });
+    res.json(account ? {
+      hosted: true, account, unlimited: isAdmin(account), billing: !!hosted?.billing,
+      limits: { freeParses: FREE_PARSES, proMonthlyParses: PRO_MONTHLY_PARSES, freeBlurt: FREE_BLURT_MAX, proBlurt: PRO_BLURT_MAX },
+    } : { hosted: false });
+  }));
+
+  /** Stripe Checkout for Pro, or Stripe's billing page once subscribed. The page redirects to the returned url. */
+  app.post('/api/billing/checkout', wrap(async (req, res) => {
+    const account = accountOf(res);
+    if (!account || !hosted?.billing) throw new HttpError(404, 'Billing is not set up');
+    if (account.pro) return res.json({ url: await hosted.billing.portalUrl(account, origin(req)) });
+    res.json({ url: await hosted.billing.checkoutUrl(account, origin(req)) });
+  }));
+
+  app.post('/api/billing/portal', wrap(async (req, res) => {
+    const account = accountOf(res);
+    if (!account || !hosted?.billing) throw new HttpError(404, 'Billing is not set up');
+    res.json({ url: await hosted.billing.portalUrl(account, origin(req)) });
   }));
 
   /** The writer's own Anthropic key, for parses after the free ones. Stored encrypted; only the last 4 characters come back. */
@@ -225,17 +264,30 @@ export function createApp(hosted?: Hosted): Express {
 
   /** Hosted, a parse spends one free try or uses the writer's own key. A failed parse gives the free try back. */
   async function runParse(slug: string, blurt: Blurt, account?: Account) {
-    let apiKey: string | undefined;
-    let free = false;
+    let paid: Paid | undefined;
     if (account && hosted && !isAdmin(account)) {
-      const paid = await hosted.accounts.takeParse(account.id);
-      if (!paid) throw new HttpError(402, `You've used your ${FREE_PARSES} free parses. Add your own Anthropic API key on your account page to keep going.`);
-      ({ apiKey, free } = paid);
+      const canUpgrade = !!hosted.billing && !account.pro;
+      const pages = (n: number) => `${Math.round(n / 2800)} pages`;
+      const max = account.pro ? PRO_BLURT_MAX : FREE_BLURT_MAX;
+      if (blurt.text.length > max) {
+        throw new PlanLimit(413, canUpgrade
+          ? `This blurt is about ${pages(blurt.text.length)}. Free parses take up to ${pages(FREE_BLURT_MAX)}; Pro takes ${pages(PRO_BLURT_MAX)}. It's saved, so you can parse it after upgrading or split it.`
+          : `This blurt is about ${pages(blurt.text.length)}; parses take up to ${pages(max)}. It's saved; split it and paste the parts.`, canUpgrade);
+      }
+      const got = await hosted.accounts.takeParse(account.id);
+      if ('denied' in got) {
+        throw got.denied === 'pro'
+          ? new PlanLimit(402, `You've used this month's ${PRO_MONTHLY_PARSES} Pro parses. Add your own Anthropic key on your account page, or wait for next month.`, false)
+          : new PlanLimit(402, canUpgrade
+            ? `You've used your ${FREE_PARSES} free parses. Upgrade to Pro, or add your own Anthropic key on your account page.`
+            : `You've used your ${FREE_PARSES} free parses. Add your own Anthropic key on your account page to keep going.`, canUpgrade);
+      }
+      paid = got;
     }
     try {
-      return await parseInto(slug, blurt, apiKey);
+      return await parseInto(slug, blurt, paid?.apiKey);
     } catch (e) {
-      if (free) await hosted!.accounts.refundParse(account!.id);
+      if (paid) await hosted!.accounts.refundParse(account!.id, paid.kind);
       throw e;
     }
   }
@@ -303,14 +355,14 @@ export function createApp(hosted?: Hosted): Express {
     const slug = slugOf(req);
     const text = String(req.body?.text ?? '');
     if (!text.trim()) throw new HttpError(400, 'Blurt is empty');
-    if (hosted && !isAdmin(accountOf(res)) && text.length > BLURT_MAX) throw new HttpError(413, `Blurts are limited to ${BLURT_MAX.toLocaleString()} characters. Split it and try again.`);
+    if (hosted && !isAdmin(accountOf(res)) && text.length > SAVE_MAX) throw new HttpError(413, 'That is too long to save as one blurt. Split it and try again.');
     const blurt = saveBlurt(slug, text);
     appendEvent(slug, 'human', 'blurt.create', { id: blurt.id, text });
     try {
       const units = await runParse(slug, blurt, accountOf(res));
       res.json({ blurt, units });
     } catch (e) {
-      res.status(parseStatus(e)).json({ blurt, units: [], error: describeError(e) });
+      res.status(parseStatus(e)).json({ blurt, units: [], error: describeError(e), ...(e instanceof PlanLimit && e.upgrade ? { upgrade: true } : {}) });
     }
   }));
 
@@ -320,7 +372,7 @@ export function createApp(hosted?: Hosted): Express {
     try {
       res.json({ blurt, units: await runParse(slug, blurt, accountOf(res)) });
     } catch (e) {
-      res.status(parseStatus(e)).json({ blurt, units: [], error: describeError(e) });
+      res.status(parseStatus(e)).json({ blurt, units: [], error: describeError(e), ...(e instanceof PlanLimit && e.upgrade ? { upgrade: true } : {}) });
     }
   }));
 
@@ -420,7 +472,7 @@ export function createApp(hosted?: Hosted): Express {
     });
   }));
 
-  app.use(['/api', '/projects'], (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  app.use(['/api', '/projects', '/stripe'], (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     // Our own errors, and library ones that carry a client status (a missing file, a body too large).
     const own = (err as { status?: unknown }).status;
     const status = err instanceof HttpError ? err.status : typeof own === 'number' && own >= 400 && own < 500 ? own : 500;

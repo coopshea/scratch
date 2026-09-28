@@ -27,7 +27,15 @@ async function hosting(): Promise<Hosted | undefined> {
     console.warn('No DATABASE_URL: accounts are kept in memory and reset on restart.');
     accounts = new MemoryAccounts();
   }
+  // Pro through Stripe, once all three are set; until then writers bring their own key after the free parses.
+  const { STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET } = process.env;
+  let billing;
+  if (STRIPE_SECRET_KEY && STRIPE_PRICE_ID && STRIPE_WEBHOOK_SECRET) {
+    const { StripeBilling } = await import('./billing.ts');
+    billing = new StripeBilling(accounts, STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET);
+  } else console.warn('Stripe is not configured: no Pro upgrade.');
   return {
+    billing,
     session: clerkMiddleware({ publishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY }),
     userId: (req) => getAuth(req).userId,
     email: async (id) => {
