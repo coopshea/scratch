@@ -3,7 +3,7 @@ import type { Project, Unit } from '../shared/types.ts';
 import { structureMap, type Board, type StructureDef } from '../shared/structures.ts';
 import { replay, type LogEvent } from '../shared/replay.ts';
 import { settle } from '../shared/clusters.ts';
-import { api, archetypes, billing, slug } from './api.ts';
+import { api, archetypes, slug } from './api.ts';
 import { DocList } from './DocList.tsx';
 import { Draft } from './Draft.tsx';
 import { Graph } from './Graph.tsx';
@@ -65,8 +65,8 @@ export function App({ account }: { account?: React.ReactNode } = {}) {
     setProject((p) => (p ? { ...p, blurts: p.blurts.some((b) => b.id === res.blurt.id) ? p.blurts : [...p.blurts, res.blurt] } : p));
     if (res.error) {
       setError(res.error); setFailedBlurtId(res.blurt.id);
-      // Hosted: a limit Pro lifts. The blurt is already saved, so leaving for Stripe loses nothing.
-      if (res.upgrade && confirm(`${res.error}\n\nUpgrade to Pro now?`)) billing.checkout().catch((e) => setError(e.message));
+      // Hosted, out of parses. The blurt is already saved, so leaving for the account page loses nothing.
+      if (res.buy && confirm(`${res.error}\n\nOpen your account page?`)) location.href = '/?account';
       return false;
     }
     setError(null); setFailedBlurtId(null);

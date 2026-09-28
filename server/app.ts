@@ -3,7 +3,7 @@ import rateLimit from 'express-rate-limit';
 import helmet from 'helmet';
 import fs from 'node:fs';
 import path from 'node:path';
-import { checkKeyShape, FREE_PARSES, MAX_ACCOUNTS, PRO_MONTHLY_PARSES, type Account, type Accounts, type Paid } from './accounts.ts';
+import { checkKeyShape, FREE_PARSES, MAX_ACCOUNTS, PACK_PARSES, PRO_MONTHLY_PARSES, type Account, type Accounts, type Paid } from './accounts.ts';
 import type { Billing } from './billing.ts';
 import { describeError, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
 import {
@@ -28,19 +28,18 @@ export type Hosted = {
   accounts: Accounts;
   /** Middleware that reads the session before userId is asked, e.g. clerkMiddleware(). */
   session?: express.RequestHandler;
-  /** Pro through Stripe. Without it there is no upgrade, only the writer's own key. */
+  /** Buying parses through Stripe. Without it, writers bring their own key after the free parses. */
   billing?: Billing;
 };
 
-// Blurt sizes, hosted only. A page is about 500 words, about 2,800 characters. Pro stops at 10 pages because the
-// parser copies every word back verbatim, and one response has an output ceiling.
-export const FREE_BLURT_MAX = 14_000; // 5 pages
-export const PRO_BLURT_MAX = 28_000; // 10 pages
+// About 5 pages, hosted only. The parser copies every word back, so a longer blurt would outrun one response's
+// output ceiling and fail anyway; it also bounds what one parse costs (roughly 2 to 20 cents).
+export const BLURT_MAX = 14_000;
 const SAVE_MAX = 200_000; // not even saved beyond this
 
-/** A limit that Pro lifts. The response carries `upgrade` so the page can offer Stripe. */
-class PlanLimit extends HttpError {
-  constructor(status: number, message: string, public upgrade: boolean) { super(status, message); }
+/** Out of parses. The response carries `buy` so the page can point to the account page. */
+class OutOfParses extends HttpError {
+  constructor(message: string, public buy: boolean) { super(402, message); }
 }
 
 /** The site's owners (ADMIN_EMAILS, comma-separated): no per-writer rate limits, no free-parse quota, no blurt cap. */
@@ -102,17 +101,20 @@ export function createApp(hosted?: Hosted): Express {
   app.get('/api/me', wrap((_req, res) => {
     const account = accountOf(res);
     res.json(account ? {
-      hosted: true, account, unlimited: isAdmin(account), billing: !!hosted?.billing,
-      limits: { freeParses: FREE_PARSES, proMonthlyParses: PRO_MONTHLY_PARSES, freeBlurt: FREE_BLURT_MAX, proBlurt: PRO_BLURT_MAX },
+      hosted: true, account, unlimited: isAdmin(account),
+      offers: hosted?.billing?.offers ?? { pack: false, subscription: false },
+      limits: { freeParses: FREE_PARSES, packParses: PACK_PARSES, monthlyParses: PRO_MONTHLY_PARSES },
     } : { hosted: false });
   }));
 
-  /** Stripe Checkout for Pro, or Stripe's billing page once subscribed. The page redirects to the returned url. */
+  /** Stripe Checkout for a block of parses or a subscription. The page redirects to the returned url. */
   app.post('/api/billing/checkout', wrap(async (req, res) => {
     const account = accountOf(res);
     if (!account || !hosted?.billing) throw new HttpError(404, 'Billing is not set up');
-    if (account.pro) return res.json({ url: await hosted.billing.portalUrl(account, origin(req)) });
-    res.json({ url: await hosted.billing.checkoutUrl(account, origin(req)) });
+    const what = req.body?.what === 'subscription' ? 'subscription' : 'pack';
+    // Already subscribed: Stripe's billing page, not a second subscription.
+    if (what === 'subscription' && account.pro) return res.json({ url: await hosted.billing.portalUrl(account, origin(req)) });
+    res.json({ url: await hosted.billing.checkoutUrl(account, origin(req), what) });
   }));
 
   app.post('/api/billing/portal', wrap(async (req, res) => {
@@ -262,25 +264,19 @@ export function createApp(hosted?: Hosted): Express {
     res.json(lines.map((l) => JSON.parse(l)).filter((e) => e.type !== 'layout.move' && e.type !== 'layout.auto'));
   }));
 
-  /** Hosted, a parse spends one free try or uses the writer's own key. A failed parse gives the free try back. */
+  /**
+   * Hosted, a parse is paid for by a free try, the subscription, a bought parse or the writer's own key
+   * (accounts.ts). A failed parse gives back what it spent.
+   */
   async function runParse(slug: string, blurt: Blurt, account?: Account) {
     let paid: Paid | undefined;
     if (account && hosted && !isAdmin(account)) {
-      const canUpgrade = !!hosted.billing && !account.pro;
-      const pages = (n: number) => `${Math.round(n / 2800)} pages`;
-      const max = account.pro ? PRO_BLURT_MAX : FREE_BLURT_MAX;
-      if (blurt.text.length > max) {
-        throw new PlanLimit(413, canUpgrade
-          ? `This blurt is about ${pages(blurt.text.length)}. Free parses take up to ${pages(FREE_BLURT_MAX)}; Pro takes ${pages(PRO_BLURT_MAX)}. It's saved, so you can parse it after upgrading or split it.`
-          : `This blurt is about ${pages(blurt.text.length)}; parses take up to ${pages(max)}. It's saved; split it and paste the parts.`, canUpgrade);
-      }
+      if (blurt.text.length > BLURT_MAX) throw new HttpError(413, "That's longer than one parse can take. It's saved; split it and paste the parts.");
       const got = await hosted.accounts.takeParse(account.id);
       if ('denied' in got) {
-        throw got.denied === 'pro'
-          ? new PlanLimit(402, `You've used this month's ${PRO_MONTHLY_PARSES} Pro parses. Add your own Anthropic key on your account page, or wait for next month.`, false)
-          : new PlanLimit(402, canUpgrade
-            ? `You've used your ${FREE_PARSES} free parses. Upgrade to Pro, or add your own Anthropic key on your account page.`
-            : `You've used your ${FREE_PARSES} free parses. Add your own Anthropic key on your account page to keep going.`, canUpgrade);
+        throw new OutOfParses(hosted.billing
+          ? 'Out of parses. Buy more or add your own Anthropic key on your account page. Your blurt is saved.'
+          : 'Out of parses. Add your own Anthropic key on your account page. Your blurt is saved.', true);
       }
       paid = got;
     }
@@ -362,7 +358,7 @@ export function createApp(hosted?: Hosted): Express {
       const units = await runParse(slug, blurt, accountOf(res));
       res.json({ blurt, units });
     } catch (e) {
-      res.status(parseStatus(e)).json({ blurt, units: [], error: describeError(e), ...(e instanceof PlanLimit && e.upgrade ? { upgrade: true } : {}) });
+      res.status(parseStatus(e)).json({ blurt, units: [], error: describeError(e), ...(e instanceof OutOfParses ? { buy: true } : {}) });
     }
   }));
 
@@ -372,7 +368,7 @@ export function createApp(hosted?: Hosted): Express {
     try {
       res.json({ blurt, units: await runParse(slug, blurt, accountOf(res)) });
     } catch (e) {
-      res.status(parseStatus(e)).json({ blurt, units: [], error: describeError(e), ...(e instanceof PlanLimit && e.upgrade ? { upgrade: true } : {}) });
+      res.status(parseStatus(e)).json({ blurt, units: [], error: describeError(e), ...(e instanceof OutOfParses ? { buy: true } : {}) });
     }
   }));
 

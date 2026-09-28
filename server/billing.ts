@@ -1,14 +1,18 @@
 import Stripe from 'stripe';
-import type { Account, Accounts } from './accounts.ts';
+import { PACK_PARSES, type Account, type Accounts } from './accounts.ts';
 import { HttpError } from './store.ts';
 
 /**
- * Pro, paid monthly through Stripe. Checkout and cancelling happen on Stripe's own pages; the webhook tells us
- * when a subscription starts, renews, lapses or ends. Nothing about cards ever touches this server.
+ * Paying for parses through Stripe: a one-time block of parses, or a monthly subscription. Checkout and cancelling
+ * happen on Stripe's own pages; the webhook tells us what was paid for. Nothing about cards touches this server.
  */
+export type Purchase = 'pack' | 'subscription';
+
 export interface Billing {
-  /** A Stripe Checkout page for Pro. */
-  checkoutUrl(account: Account, origin: string): Promise<string>;
+  /** What is on sale, from which prices are configured. */
+  offers: Record<Purchase, boolean>;
+  /** A Stripe Checkout page for one purchase. */
+  checkoutUrl(account: Account, origin: string, what: Purchase): Promise<string>;
   /** Stripe's own page for changing card or cancelling. */
   portalUrl(account: Account, origin: string): Promise<string>;
   /** Verifies Stripe's signature, then applies the event. */
@@ -20,18 +24,25 @@ const ACTIVE = new Set(['active', 'trialing', 'past_due']);
 
 export class StripeBilling implements Billing {
   private stripe: Stripe;
-  constructor(private accounts: Accounts, secretKey: string, private priceId: string, private webhookSecret: string) {
+  offers: Record<Purchase, boolean>;
+  constructor(private accounts: Accounts, secretKey: string, private prices: Partial<Record<Purchase, string>>, private webhookSecret: string) {
     this.stripe = new Stripe(secretKey);
+    this.offers = { pack: !!prices.pack, subscription: !!prices.subscription };
   }
 
-  async checkoutUrl(account: Account, origin: string) {
+  async checkoutUrl(account: Account, origin: string, what: Purchase) {
+    const price = this.prices[what];
+    if (!price) throw new HttpError(404, 'Not on sale');
     const customer = await this.accounts.customerOf(account.id);
     const session = await this.stripe.checkout.sessions.create({
-      mode: 'subscription',
-      line_items: [{ price: this.priceId, quantity: 1 }],
+      mode: what === 'pack' ? 'payment' : 'subscription',
+      line_items: [{ price, quantity: 1 }],
       client_reference_id: account.id,
-      ...(customer ? { customer } : { customer_email: account.email ?? undefined }),
-      success_url: `${origin}/?account&upgraded=1`,
+      // A block's size is fixed here, on the server, and read back from the signed webhook.
+      metadata: what === 'pack' ? { parses: String(PACK_PARSES) } : {},
+      ...(customer ? { customer } : what === 'pack' ? { customer_creation: 'always' as const } : {}),
+      ...(customer ? {} : { customer_email: account.email ?? undefined }),
+      success_url: `${origin}/?account&paid=${what}`,
       cancel_url: `${origin}/?account`,
       allow_promotion_codes: true,
     });
@@ -59,16 +70,30 @@ export class StripeBilling implements Billing {
 
 /** Separate from the signature check so tests can apply events directly. */
 export async function applyEvent(accounts: Accounts, event: Stripe.Event) {
+  if (!(await accounts.firstTime(event.id))) return; // Stripe retries deliveries; each event counts once
+  try {
+    await apply(accounts, event);
+  } catch (e) {
+    await accounts.forgetEvent(event.id); // so Stripe's retry can apply it
+    throw e;
+  }
+}
+
+async function apply(accounts: Accounts, event: Stripe.Event) {
   const customerId = (c: string | { id: string } | null) => (typeof c === 'string' ? c : c?.id ?? null);
   switch (event.type) {
     case 'checkout.session.completed': {
       const s = event.data.object;
       const id = s.client_reference_id;
       const customer = customerId(s.customer);
-      if (!id || !customer || s.mode !== 'subscription') return;
-      await accounts.linkCustomer(id, customer);
-      // Subscription events can arrive before this one, when the customer was not linked yet; switch Pro on here too.
-      if (s.status === 'complete') await accounts.setProByCustomer(customer, true);
+      if (!id) return;
+      if (customer) await accounts.linkCustomer(id, customer);
+      if (s.mode === 'payment' && s.payment_status === 'paid') {
+        const n = Number(s.metadata?.parses);
+        if (Number.isInteger(n) && n > 0) await accounts.addCredits(id, n);
+      }
+      // Subscription events can arrive before this one, when the customer was not linked yet; switch it on here too.
+      if (s.mode === 'subscription' && customer && s.status === 'complete') await accounts.setProByCustomer(customer, true);
       return;
     }
     case 'customer.subscription.created':

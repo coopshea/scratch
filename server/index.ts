@@ -27,13 +27,13 @@ async function hosting(): Promise<Hosted | undefined> {
     console.warn('No DATABASE_URL: accounts are kept in memory and reset on restart.');
     accounts = new MemoryAccounts();
   }
-  // Pro through Stripe, once all three are set; until then writers bring their own key after the free parses.
-  const { STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET } = process.env;
+  // Paying through Stripe: a secret key, a webhook secret, and at least one price (a block of parses, a subscription).
+  const { STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_PACK_PRICE_ID, STRIPE_SUBSCRIPTION_PRICE_ID } = process.env;
   let billing;
-  if (STRIPE_SECRET_KEY && STRIPE_PRICE_ID && STRIPE_WEBHOOK_SECRET) {
+  if (STRIPE_SECRET_KEY && STRIPE_WEBHOOK_SECRET && (STRIPE_PACK_PRICE_ID || STRIPE_SUBSCRIPTION_PRICE_ID)) {
     const { StripeBilling } = await import('./billing.ts');
-    billing = new StripeBilling(accounts, STRIPE_SECRET_KEY, STRIPE_PRICE_ID, STRIPE_WEBHOOK_SECRET);
-  } else console.warn('Stripe is not configured: no Pro upgrade.');
+    billing = new StripeBilling(accounts, STRIPE_SECRET_KEY, { pack: STRIPE_PACK_PRICE_ID, subscription: STRIPE_SUBSCRIPTION_PRICE_ID }, STRIPE_WEBHOOK_SECRET);
+  } else console.warn('Stripe is not configured: writers bring their own key after the free parses.');
   return {
     billing,
     session: clerkMiddleware({ publishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY }),

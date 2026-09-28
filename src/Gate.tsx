@@ -4,11 +4,14 @@ import { App } from './App.tsx';
 import { billing } from './api.ts';
 
 type Me = {
-  hosted: true; unlimited: boolean; billing: boolean;
-  account: { email: string | null; freeParsesUsed: number; hasOwnKey: boolean; keyHint: string | null; pro: boolean; proParsesThisMonth: number; hasBilling: boolean };
-  limits: { freeParses: number; proMonthlyParses: number; freeBlurt: number; proBlurt: number };
+  hosted: true; unlimited: boolean;
+  offers: { pack: boolean; subscription: boolean };
+  account: {
+    email: string | null; freeParsesUsed: number; hasOwnKey: boolean; keyHint: string | null;
+    pro: boolean; proParsesThisMonth: number; credits: number; hasBilling: boolean;
+  };
+  limits: { freeParses: number; packParses: number; monthlyParses: number };
 };
-const pages = (chars: number) => Math.round(chars / 2800);
 
 const onAccountPage = () => new URLSearchParams(location.search).has('account');
 
@@ -52,20 +55,28 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
   const [key, setKey] = useState('');
   const [error, setError] = useState<string | null>(null);
   const a = me.account;
-  const { limits } = me;
-  const left = Math.max(0, limits.freeParses - a.freeParsesUsed);
-  const upgraded = new URLSearchParams(location.search).has('upgraded');
+  const { limits, offers } = me;
+  const freeLeft = Math.max(0, limits.freeParses - a.freeParsesUsed);
+  const monthLeft = a.pro ? Math.max(0, limits.monthlyParses - a.proParsesThisMonth) : 0;
+  const paid = new URLSearchParams(location.search).get('paid');
+  const [waiting, setWaiting] = useState(!!paid);
 
-  // Back from Stripe: the webhook may land a moment after the redirect, so look again until Pro shows.
+  // Back from Stripe: the webhook can land a moment after the redirect, so look again until the purchase shows.
   useEffect(() => {
-    if (!upgraded || a.pro) return;
+    if (!paid) return;
+    const before = a.credits;
     let tries = 0;
     const t = setInterval(async () => {
       const res = await fetch('/api/me');
-      if (res.ok) { const next = await res.json(); if (next.account.pro || ++tries > 10) { onChange(next); clearInterval(t); } }
+      if (!res.ok) return;
+      const next: Me = await res.json();
+      const arrived = paid === 'subscription' ? next.account.pro : next.account.credits > before;
+      if (arrived || ++tries > 10) { onChange(next); setWaiting(false); clearInterval(t); }
     }, 2000);
     return () => clearInterval(t);
-  }, [upgraded, a.pro]);
+  }, [paid]);
+
+  const buy = (what: 'pack' | 'subscription') => billing.checkout(what).catch((e) => setError(e.message));
 
   const save = async (remove = false) => {
     setError(null);
@@ -78,6 +89,12 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
     onChange({ ...me, account: body });
   };
 
+  const left = [
+    freeLeft > 0 && `${freeLeft} free`,
+    a.pro && `${monthLeft} of ${limits.monthlyParses} this month`,
+    a.credits > 0 && `${a.credits} bought`,
+  ].filter(Boolean);
+
   return (
     <div className="app">
       <header className="topbar">
@@ -88,39 +105,39 @@ function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => void; me
       <main className="account">
         <h1>Account</h1>
         <p>{a.email}</p>
-        <h2>Plan</h2>
+
+        <h2>Parses</h2>
         {me.unlimited ? (
-          <p>Unlimited: you're an owner of this site, so parses use the site's key with no limits.</p>
-        ) : a.pro ? (
-          <>
-            <p>Pro. Blurts up to {pages(limits.proBlurt)} pages; {a.proParsesThisMonth} of {limits.proMonthlyParses} parses used this month.
-              {a.hasOwnKey && <> After that, parses use your own key.</>}</p>
-            <button className="stage" onClick={() => billing.portal().catch((e) => setError(e.message))}>manage billing</button>
-          </>
+          <p>Unlimited. You're an owner of this site.</p>
         ) : (
           <>
             <p>
-              Free. Blurts up to {pages(limits.freeBlurt)} pages.{' '}
-              {a.hasOwnKey
-                ? <>Parses use your own Anthropic key, ending <code>{a.keyHint}</code>.</>
-                : <>{left} of {limits.freeParses} free parses left; after that, add your own Anthropic key below.</>}
+              {left.length ? <>Left: {left.join(' · ')}.</> : a.hasOwnKey ? <>Parses run on your own key.</> : <>None left.</>}
+              {waiting && <span className="hint"> Payment received, adding it…</span>}
             </p>
-            {upgraded && <p className="hint">Payment received. Switching you to Pro…</p>}
-            {me.billing && !upgraded && (
-              <p>
-                <button className="stage" onClick={() => billing.checkout().catch((e) => setError(e.message))}>upgrade to Pro</button>
-                <span className="hint"> · blurts up to {pages(limits.proBlurt)} pages, {limits.proMonthlyParses} parses a month on our key, monthly, cancel anytime</span>
+            <p className="hint">
+              Each parse costs about 2 to 20 cents of model time, depending on its length. Add your own Anthropic key and
+              pay as you go, or buy parses here: what's left over buys me a coffee.
+            </p>
+            {(offers.pack || offers.subscription) && (
+              <p className="buy">
+                {offers.pack && <button className="stage" onClick={() => buy('pack')}>buy {limits.packParses} parses</button>}
+                {offers.subscription && (a.pro
+                  ? <button className="stage" onClick={() => billing.portal().catch((e) => setError(e.message))}>manage subscription</button>
+                  : <button className="stage" onClick={() => buy('subscription')}>subscribe · {limits.monthlyParses} a month</button>)}
               </p>
             )}
           </>
         )}
+
         <h2>Your Anthropic API key</h2>
         <p className="hint">
           Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.
-          It's stored encrypted and never sent back to your browser; parses are billed to your Anthropic account.
+          Once your free and bought parses are used, parses run on this key and Anthropic bills you directly.
+          It's stored encrypted, used only to run your parses, and never shown again. Remove it anytime.
         </p>
         <form onSubmit={(e) => { e.preventDefault(); save(); }}>
-          <input type="password" autoComplete="off" placeholder="sk-ant-…" value={key} onChange={(e) => setKey(e.target.value)} />
+          <input type="password" autoComplete="off" placeholder={a.hasOwnKey ? `saved, ending ${a.keyHint}` : 'sk-ant-…'} value={key} onChange={(e) => setKey(e.target.value)} />
           <button className="stage" type="submit" disabled={!key.trim()}>save</button>
           {a.hasOwnKey && <button className="link" type="button" onClick={() => save(true)}>remove key</button>}
         </form>

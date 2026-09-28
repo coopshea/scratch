@@ -28,13 +28,14 @@ beforeAll(async () => {
   const { MemoryAccounts } = await import('../server/accounts.ts');
   const { StripeBilling } = await import('../server/billing.ts');
   accounts = new MemoryAccounts();
-  const stripe = new StripeBilling(accounts, 'sk_test_not_used', 'price_test', WHSEC);
+  const stripe = new StripeBilling(accounts, 'sk_test_not_used', { pack: 'price_pack', subscription: 'price_sub' }, WHSEC);
   app = createApp({
     userId: (req) => req.header('x-test-user') ?? null,
     email: async (id) => `${id}@example.com`,
     accounts,
     billing: {
-      checkoutUrl: async (a) => `https://checkout.stripe.test/${a.id}`,
+      offers: stripe.offers,
+      checkoutUrl: async (a, _origin, what) => `https://checkout.stripe.test/${what}/${a.id}`,
       portalUrl: async (a) => `https://billing.stripe.test/${a.id}`,
       webhook: (raw, sig) => stripe.webhook(raw, sig),
     },
@@ -88,6 +89,7 @@ describe('hosted: free parses and own keys', () => {
     for (let i = 0; i < 2; i++) expect((await as('carol').post(`/api/p/${slug}/blurts`).send({ text: `Idea ${i}.` })).status).toBe(200);
     const third = await as('carol').post(`/api/p/${slug}/blurts`).send({ text: 'Third idea.' });
     expect(third.status).toBe(402);
+    expect(third.body.buy).toBe(true);
     expect(third.body.blurt.text).toBe('Third idea.'); // saved, so it can be parsed once a key is added
     expect((await as('carol').get('/api/me')).body.account.freeParsesUsed).toBe(2);
   });
@@ -103,10 +105,9 @@ describe('hosted: free parses and own keys', () => {
     expect((await as('carol').post(`/api/p/${slug}/blurts`).send({ text: 'With my own key.' })).status).toBe(200);
   });
 
-  it('caps blurts at 5 pages on the free plan, keeps the blurt, and offers Pro', async () => {
+  it('caps a blurt at what one parse can take, and keeps it', async () => {
     const res = await as('carol').post('/api/p/scratch/blurts').send({ text: 'x'.repeat(14_001) });
     expect(res.status).toBe(413);
-    expect(res.body.upgrade).toBe(true);
     expect(res.body.blurt.text.length).toBe(14_001);
   });
 
@@ -134,48 +135,49 @@ describe('hosted: owners', () => {
   });
 });
 
-describe('hosted: Pro through Stripe', () => {
-  const event = (type: string, object: object) => ({ id: 'evt_1', object: 'event', type, data: { object } });
+describe('hosted: buying parses through Stripe', () => {
+  const event = (id: string, type: string, object: object) => ({ id, object: 'event', type, data: { object } });
   const post = (e: object, header?: string) => {
     const { payload, header: good } = signed(e);
     return request(app).post('/stripe/webhook').set('stripe-signature', header ?? good).set('content-type', 'application/json').send(payload);
   };
+  const me = async () => (await as('erin').get('/api/me')).body;
+  const parse = (text = 'An idea.') => as('erin').post('/api/p/scratch/blurts').send({ text });
+  const packPaid = (id: string) => event(id, 'checkout.session.completed',
+    { client_reference_id: 'erin', customer: 'cus_erin', mode: 'payment', payment_status: 'paid', metadata: { parses: '3' }, status: 'complete' });
 
-  it('refuses a free blurt over 5 pages before spending a free parse', async () => {
-    const res = await as('erin').post('/api/p/scratch/blurts').send({ text: 'z'.repeat(14_001) });
-    expect(res.status).toBe(413);
-    expect(res.body.upgrade).toBe(true);
-    expect((await as('erin').get('/api/me')).body.account.freeParsesUsed).toBe(0);
-  });
-
-  it('sends a free writer to Stripe Checkout', async () => {
-    const res = await as('erin').post('/api/billing/checkout');
-    expect(res.body.url).toBe('https://checkout.stripe.test/erin');
+  it('offers a block of parses and a subscription', async () => {
+    expect((await me()).offers).toEqual({ pack: true, subscription: true });
+    expect((await as('erin').post('/api/billing/checkout').send({ what: 'pack' })).body.url).toBe('https://checkout.stripe.test/pack/erin');
+    expect((await as('erin').post('/api/billing/checkout').send({ what: 'subscription' })).body.url).toBe('https://checkout.stripe.test/subscription/erin');
   });
 
   it('ignores webhooks without a valid Stripe signature', async () => {
-    const e = event('checkout.session.completed', { client_reference_id: 'erin', customer: 'cus_erin', mode: 'subscription', status: 'complete' });
-    expect((await post(e, 't=1,v1=forged')).status).toBe(400);
-    expect((await as('erin').get('/api/me')).body.account.pro).toBe(false);
+    expect((await post(packPaid('evt_forged'), 't=1,v1=forged')).status).toBe(400);
+    expect((await me()).account.credits).toBe(0);
   });
 
-  it('switches Pro on after checkout: 10-page blurts, parses on the Pro allowance', async () => {
-    const e = event('checkout.session.completed', { client_reference_id: 'erin', customer: 'cus_erin', mode: 'subscription', status: 'complete' });
-    expect((await post(e)).status).toBe(200);
-    expect((await as('erin').get('/api/me')).body.account.pro).toBe(true);
-    expect((await as('erin').post('/api/p/scratch/blurts').send({ text: 'Long one. '.repeat(1_500) })).status).toBe(200);
-    const tooLong = await as('erin').post('/api/p/scratch/blurts').send({ text: 'z'.repeat(28_001) });
-    expect(tooLong.status).toBe(413);
-    expect(tooLong.body.upgrade).toBeUndefined();
-    const me = (await as('erin').get('/api/me')).body.account;
-    expect(me.proParsesThisMonth).toBe(1);
-    expect(me.freeParsesUsed).toBe(0);
-    expect((await as('erin').post('/api/billing/checkout')).body.url).toBe('https://billing.stripe.test/erin'); // Pro: manage, not buy again
+  it('adds a paid block once, even when Stripe delivers it twice, and spends it after the free parses', async () => {
+    expect((await post(packPaid('evt_pack'))).status).toBe(200);
+    expect((await post(packPaid('evt_pack'))).status).toBe(200); // retried delivery
+    expect((await me()).account.credits).toBe(3);
+    for (let i = 0; i < 3; i++) expect((await parse()).status).toBe(200); // 2 free, then 1 bought
+    const m = (await me()).account;
+    expect(m.freeParsesUsed).toBe(2);
+    expect(m.credits).toBe(2);
   });
 
-  it('switches Pro off when the subscription ends', async () => {
-    expect((await post(event('customer.subscription.deleted', { customer: 'cus_erin', status: 'canceled' }))).status).toBe(200);
-    expect((await as('erin').get('/api/me')).body.account.pro).toBe(false);
+  it('spends the subscription before bought parses, and stops when it ends', async () => {
+    await post(event('evt_sub', 'checkout.session.completed', { client_reference_id: 'erin', customer: 'cus_erin', mode: 'subscription', status: 'complete' }));
+    expect((await me()).account.pro).toBe(true);
+    expect((await parse()).status).toBe(200);
+    let m = (await me()).account;
+    expect(m.proParsesThisMonth).toBe(1);
+    expect(m.credits).toBe(2);
+    expect((await as('erin').post('/api/billing/checkout').send({ what: 'subscription' })).body.url).toBe('https://billing.stripe.test/erin'); // manage, not buy again
+    await post(event('evt_end', 'customer.subscription.deleted', { customer: 'cus_erin', status: 'canceled' }));
+    m = (await me()).account;
+    expect(m.pro).toBe(false);
   });
 });
 
