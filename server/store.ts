@@ -4,7 +4,9 @@ import crypto from 'node:crypto';
 import type { Blurt, Project, ProjectMeta, ProjectSummary, Unit } from '../shared/types.ts';
 import { emptyBoard, type Board, type StructureDef } from '../shared/structures.ts';
 
-const ROOT = path.resolve('projects');
+/** Where writing lives. Tests point SCRATCH_DATA at a temporary folder. */
+export const DATA_ROOT = path.resolve(process.env.SCRATCH_DATA || 'projects');
+const ROOT = DATA_ROOT;
 
 export function assertSlug(slug: string) {
   if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(slug)) throw new HttpError(400, 'Invalid project slug');
@@ -153,4 +155,18 @@ export function readArchetypes(): StructureDef[] {
 export function writeArchetypes(list: StructureDef[]) {
   fs.mkdirSync(ROOT, { recursive: true });
   writeAtomic(ARCHETYPES, JSON.stringify(list, null, 2) + '\n');
+}
+
+/**
+ * Delete a document by moving its folder to projects/.trash (named with the time), never erasing it: a wrong
+ * click can be undone by moving the folder back. The deletion is logged in the document's own history first.
+ */
+export function trashProject(slug: string) {
+  assertSlug(slug);
+  const dir = path.join(ROOT, slug);
+  if (!fs.existsSync(dir)) throw new HttpError(404, 'Document not found');
+  appendEvent(slug, 'human', 'project.delete', {});
+  const trash = path.join(ROOT, '.trash');
+  fs.mkdirSync(trash, { recursive: true });
+  fs.renameSync(dir, path.join(trash, `${slug}--${new Date().toISOString().replace(/[:.]/g, '-')}`));
 }

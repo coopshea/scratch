@@ -44,3 +44,4 @@ export function resolveOverlaps(nodes: BoxNode[], gap = 12) {
 export function resolveVertically(nodes: BoxNode[], gap = 10) {
   for (let k = 0; k < 60; k++) if (!separate(nodes, gap, 1, 'y')) break;
 }
+

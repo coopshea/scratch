@@ -7,3 +7,6 @@ dist/
 
 # Your writing: blurts, drafts, notes, outlines. Kept local; not published.
 projects/
+
+# Local measurement output (compare:parse).
+scratch/

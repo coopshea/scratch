@@ -3,13 +3,14 @@ import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { en } from '@blocknote/core/locales';
 import type { Blurt, Unit } from '../shared/types.ts';
+import { isRoot } from '../shared/clusters.ts';
 import { api } from './api.ts';
 import { LabelInput } from './LabelInput.tsx';
 import { HomeSelect, TypeSelect } from './TypeSelect.tsx';
 
 const dictionary = { ...en, placeholders: { ...en.placeholders, default: '', emptyDocument: '' } };
 
-function NoteEditor({ unit, onSave, readOnly }: { unit: Unit; onSave: (doc: unknown[]) => void; readOnly: boolean }) {
+function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave: (doc: unknown[]) => void; readOnly: boolean; takeFocus: boolean }) {
   const editor = useCreateBlockNote({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     initialContent: unit.note && unit.note.length ? (unit.note as any) : undefined,
@@ -18,9 +19,10 @@ function NoteEditor({ unit, onSave, readOnly }: { unit: Unit; onSave: (doc: unkn
   });
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
-  // Open with a blinking cursor at the end, so dictation lands in the note immediately.
+  // Open with a blinking cursor at the end, so dictation lands in the note immediately (not while drafting: the
+  // writer keeps writing in the page with the note open beside it).
   useEffect(() => {
-    if (readOnly) return;
+    if (readOnly || !takeFocus) return;
     const id = window.setTimeout(() => {
       const doc = editor.document;
       editor.setTextCursorPosition(doc[doc.length - 1], 'end');
@@ -50,10 +52,12 @@ type Props = {
   onFocus: (id: string) => void;
   readOnly?: boolean;
   version?: string;
+  /** Put the cursor in the note on open. Off in Draft, where the writer keeps writing in the page. */
+  takeFocus?: boolean;
 };
 
-export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, readOnly = false, version = '' }: Props) {
-  const claims = units.filter((u) => u.type === 'claim' && u.status !== 'cut' && u.id !== unit.id);
+export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, readOnly = false, version = '', takeFocus = true }: Props) {
+  const roots = units.filter((u) => isRoot(u) && u.status !== 'cut' && u.id !== unit.id);
   const blurt = blurts.find((b) => b.id === unit.blurtId);
   const children = units.filter((u) => u.home === unit.id && u.status !== 'cut');
   const sameLabel = units.filter((u) => u.id !== unit.id && u.status !== 'cut' && u.label === unit.label);
@@ -69,10 +73,10 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
 
       <LabelInput value={unit.label} onSave={(label) => onPatch(unit.id, { label })} />
 
-      {unit.type !== 'claim' && (
+      {!children.length && (
         <label className="field">
           <span>under</span>
-          <HomeSelect value={unit.home} claims={claims} onChange={(home) => onPatch(unit.id, { home })} />
+          <HomeSelect value={unit.home} claims={roots} onChange={(home) => onPatch(unit.id, { home })} />
         </label>
       )}
 
@@ -108,7 +112,7 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
       )}
 
       <div className="note">
-        <NoteEditor key={unit.id + version} unit={unit} readOnly={readOnly} onSave={(note) => onPatch(unit.id, { note })} />
+        <NoteEditor key={unit.id + version} unit={unit} readOnly={readOnly} takeFocus={takeFocus} onSave={(note) => onPatch(unit.id, { note })} />
       </div>
     </aside>
   );

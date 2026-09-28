@@ -36,6 +36,8 @@ export const api = {
 
 export const projects = {
   list: async () => (await fetch('/api/projects')).json() as Promise<ProjectSummary[]>,
+  /** Moves the document to projects/.trash on the server; recoverable by hand. */
+  remove: async (slug: string) => { await fetch(`/api/p/${encodeURIComponent(slug)}`, { method: 'DELETE' }); },
   create: async (title: string) => {
     const res = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }) });
     return res.json() as Promise<{ slug: string; title: string }>;

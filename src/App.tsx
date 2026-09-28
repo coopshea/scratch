@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Project, Unit } from '../shared/types.ts';
 import { structureMap, type Board, type StructureDef } from '../shared/structures.ts';
 import { replay, type LogEvent } from '../shared/replay.ts';
+import { settle } from '../shared/clusters.ts';
 import { api, archetypes, slug } from './api.ts';
 import { DocList } from './DocList.tsx';
 import { Draft } from './Draft.tsx';
@@ -88,8 +89,9 @@ export function App() {
     try {
       const saved = await api.patch(id, patch);
       setUnits((us) => {
-        const next = us.map((u) => (u.id === id ? saved : u));
-        return patch.type && patch.type !== 'claim' ? next.map((u) => (u.home === id ? { ...u, home: null } : u)) : next;
+        const next = us.map((u) => (u.id === id ? saved : { ...u }));
+        settle(next, saved);
+        return next;
       });
       if (patch.status === 'cut' && selectedId === id) setSelectedId(null);
     } catch (e) {
@@ -127,7 +129,7 @@ export function App() {
   const selected = units.find((u) => u.id === selectedId && (past || u.status !== 'cut')) ?? null;
 
   const sheet = selected && (
-    <NoteSheet unit={selected} units={units} blurts={blurts} onPatch={onPatch} readOnly={!!history}
+    <NoteSheet unit={selected} units={units} blurts={blurts} onPatch={onPatch} readOnly={!!history} takeFocus={stage !== 'draft'}
       version={history ? String(history.count) : ''} onClose={() => setSelectedId(null)} onFocus={setSelectedId} />
   );
 
@@ -153,8 +155,7 @@ export function App() {
       <main className={`body structure-stage ${selected ? 'has-sheet' : ''}`}>
         {history && <History events={history.events} count={history.count} onCount={(count) => setHistory({ ...history, count })}
           units={units} selectedId={selectedId} onSelect={setSelectedId} />}
-        <Structure units={units} board={board} onBoard={onBoard} structures={structures} onCustom={setCustom} onSelect={setSelectedId} selectedId={selectedId}
-          onNext={() => setStage('draft')} readOnly={!!history} />
+        <Structure units={units} board={board} onBoard={onBoard} structures={structures} onCustom={setCustom} onSelect={setSelectedId} selectedId={selectedId} readOnly={!!history} />
         {sheet}
       </main>
     );
@@ -181,9 +182,18 @@ export function App() {
         <header className="topbar">
           <button className="link docs-toggle" onClick={toggleDocs} aria-label="Documents" title="Documents">{docsOpen ? '‹' : '≡'}</button>
           <Title value={project.meta.title} onSave={onRename} />
-          <nav className="stages">
-            {STAGES.map((s) => <button key={s} className={`stage ${s === stage ? 'on' : ''}`} onClick={() => setStage(s)}>{s}</button>)}
+          <nav className="stages" aria-label="Stages">
+            {STAGES.map((s, i) => (
+              <span key={s} className="step">
+                {i > 0 && <span className="sep" aria-hidden>›</span>}
+                <button className={`stage ${s === stage ? 'on' : i < STAGES.indexOf(stage) ? 'past' : 'ahead'}`}
+                  aria-current={s === stage ? 'step' : undefined} onClick={() => setStage(s)}>{s}</button>
+              </span>
+            ))}
           </nav>
+          {!history && stage !== 'draft' && (stage !== 'talk' || units.some((u) => u.status !== 'cut')) && (
+            <button className="link next" onClick={() => setStage(STAGES[STAGES.indexOf(stage) + 1])}>{STAGES[STAGES.indexOf(stage) + 1]} →</button>
+          )}
           <span className="spacer" />
           {error && stage !== 'talk' && <span className="top-error" onClick={() => setError(null)}>{error}</span>}
           <a className="stage" href={`/api/p/${slug}/export.md`} download title="Download clean markdown">export</a>

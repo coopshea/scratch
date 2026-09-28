@@ -68,7 +68,8 @@ export function LevelPicker({ existing, onPick, onCancel }: { existing: string[]
           onKeyDown: (e) => {
             const native = e.nativeEvent as KeyboardEvent & { preventDownshiftDefault?: boolean };
             if (e.key === 'Tab' && items[0]) { e.preventDefault(); native.preventDownshiftDefault = true; onPick(items[0].label, items[0].role); }
-            else if (e.key === 'Enter' && highlightedIndex < 0) { e.preventDefault(); native.preventDownshiftDefault = true; if (q) onPick(input.trim().toLowerCase()); }
+            // Read the field itself: state can lag a fast typist by a keystroke.
+            else if (e.key === 'Enter' && highlightedIndex < 0) { e.preventDefault(); native.preventDownshiftDefault = true; const typed = e.currentTarget.value.trim().toLowerCase(); if (typed) onPick(typed); }
             else if (e.key === 'Escape') { native.preventDownshiftDefault = true; onCancel(); }
           },
           onBlur: () => { if (!q) onCancel(); },

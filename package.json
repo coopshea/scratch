@@ -7,7 +7,12 @@
     "dev": "tsx server/index.ts",
     "typecheck": "tsc --noEmit",
     "dev:offline": "PARSER=offline PORT=5179 tsx server/index.ts",
-    "check:readwise": "tsx scripts/check-readwise.ts"
+    "check:readwise": "tsx scripts/check-readwise.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "audit:parse": "tsx scripts/audit-parse.ts",
+    "compare:parse": "tsx scripts/compare-parse.ts",
+    "dev:watch": "PORT=${PORT:-5180} tsx watch --clear-screen=false server/index.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
@@ -35,9 +40,12 @@
     "@types/node": "^26.6.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/supertest": "^7.2.1",
     "@vitejs/plugin-react": "^6.1.1",
+    "supertest": "^7.3.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.1"
+    "vite": "^8.3.1",
+    "vitest": "^5.0.2"
   }
 }

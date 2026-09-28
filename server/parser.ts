@@ -3,14 +3,15 @@ import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
 import { UNIT_TYPES } from '../shared/types.ts';
 
-const client = new Anthropic(); // ANTHROPIC_API_KEY from .env
+// Created on first real parse, so importing this file never needs a key (offline mode, tests).
+let client: Anthropic | null = null;
 
 const ParsedUnit = z.object({
-  key: z.string().describe('Short unique key within this response, e.g. c1, c2 for claims, u1, u2 for others'),
+  key: z.string().describe('Short unique key within this response, e.g. r1, r2 for roots, u1, u2 for others'),
   type: z.enum(UNIT_TYPES),
   text: z.string().describe("The writer's exact words, copied character for character from the blurt"),
   label: z.string().describe('3 to 6 word concept label, at most 40 characters'),
-  home: z.string().describe('For non-claims: key of a claim in this response, or id of an existing claim, or empty string. Claims: empty string'),
+  home: z.string().describe('Key of the root claim or question in this response, or id of an existing root, that this unit belongs to. Empty string for a root, or if nothing fits'),
 });
 const ParseResult = z.object({ units: z.array(ParsedUnit) });
 export type ParsedUnit = z.infer<typeof ParsedUnit>;
@@ -29,7 +30,9 @@ For each unit:
   coinage: a pithy phrase, analogy, acronym, or name the writer is inventing or wants to stick.
   artifact: a figure, chart, table, code, or demo the writer describes wanting to make.
 - label: a 3 to 6 word concept name, at most 40 characters, heavily abstracted to the underlying idea, not a summary of the sentence. Talk about "the scarcest nutrient limits plant growth" becomes "law of the minimum". Prefer the established name of an idea when one exists.
-- home: every non-claim unit belongs to the single claim it most directly supports, illustrates, questions, or challenges. Use the key of a claim in this response, or the id of an existing claim listed below. Use an empty string if nothing fits. Claims always have an empty home.
+- home: claims and questions are the guiding primitives. A claim or question with an empty home is a root: one thread of the writer's thinking. Every other unit belongs to the single root it most directly supports, illustrates, answers, or challenges. That includes a claim that mainly supports a broader claim, and a question that mainly probes one. Use the key of a root in this response, or the id of an existing root listed below. A unit that belongs to a root never has units of its own. Use an empty string if nothing fits.
+
+Prefer fewer, broader roots. A root gathers the pieces of one thread, the way a heading gathers a pile of sticky notes. A page of notes usually has about 3 to 7 threads; use more only when the blurt truly covers more. Do not make every assertion a root.
 
 Reuse labels: if a unit expresses the same concept as a label in the existing vocabulary, use that label exactly. Only coin a new label when none fits.
 
@@ -69,25 +72,38 @@ function offlineParse(blurt: string): ParsedUnit[] {
 export async function parseBlurt(
   blurt: string,
   vocab: string[],
-  claims: { id: string; label: string }[],
+  roots: { id: string; type: string; label: string }[],
 ): Promise<ParsedUnit[]> {
   if (process.env.PARSER === 'offline') return offlineParse(blurt);
   const context = [
     vocab.length ? `Existing vocabulary:\n${vocab.map((v) => `- ${v}`).join('\n')}` : 'Existing vocabulary: none yet.',
-    claims.length ? `Existing claims (id: label):\n${claims.map((c) => `- ${c.id}: ${c.label}`).join('\n')}` : 'Existing claims: none yet.',
+    roots.length ? `Existing roots (id, type: label):\n${roots.map((r) => `- ${r.id}, ${r.type}: ${r.label}`).join('\n')}` : 'Existing roots: none yet.',
     `<blurt>\n${blurt}\n</blurt>`,
   ].join('\n\n');
 
+  client ??= new Anthropic(); // ANTHROPIC_API_KEY from .env
+  // Tuning knobs for comparing models (npm run compare:parse); defaults are the shipped settings.
+  const model = process.env.PARSER_MODEL ?? 'claude-opus-5-5';
+  // Low effort: measured on the CAD talk, Claude Opus 5.5 at low matched or beat higher settings in half the time.
+  const effort = process.env.PARSER_EFFORT ?? 'low'; // 'none' runs without thinking (Haiku 4.5 has no effort levels)
+  const started = Date.now();
   const response = await client.beta.messages.parse({
-    model: 'claude-opus-5',
+    model,
     max_tokens: 16000,
-    betas: ['server-side-fallback-2026-07-01'],
-    fallbacks: 'default',
-    thinking: { type: 'adaptive' },
-    output_config: { effort: 'medium', format: betaZodOutputFormat(ParseResult) },
+    // Refusal fallbacks: a false-positive safety decline retries on another model instead of failing the parse.
+    ...(model.startsWith('claude-opus-5') ? { betas: ['server-side-fallback-2026-07-01' as const], fallbacks: 'default' as const } : {}),
+    ...(effort === 'none' ? {} : { thinking: { type: 'adaptive' as const } }),
+    output_config: {
+      ...(effort === 'none' ? {} : { effort: effort as 'low' | 'medium' | 'high' }),
+      format: betaZodOutputFormat(ParseResult),
+    },
     system: SYSTEM,
     messages: [{ role: 'user', content: context }],
   });
+  // Thinking is billed as output. The JSON itself is roughly its characters / 4, so the rest is reasoning.
+  const json = Math.round(JSON.stringify(response.parsed_output ?? '').length / 4);
+  console.log(`parse: ${((Date.now() - started) / 1000).toFixed(1)}s, ${model} effort ${effort}, `
+    + `in ${response.usage.input_tokens}, out ${response.usage.output_tokens} (~${json} answer, ~${Math.max(0, response.usage.output_tokens - json)} thinking)`);
 
   if (response.stop_reason === 'refusal') throw new ParseFailure('The model declined to parse this blurt.');
   if (response.stop_reason === 'max_tokens') throw new ParseFailure('The blurt was too long to parse in one pass. Split it and try again.');
