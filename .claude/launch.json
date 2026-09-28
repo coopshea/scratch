@@ -1,6 +1,6 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "drafting-tool", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5178 }
+    { "name": "scratch", "runtimeExecutable": "npm", "runtimeArgs": ["run", "dev"], "port": 5178 }
   ]
 }

@@ -1,4 +1,4 @@
-# Drafting tool — v1 spec and build plan
+# Scratch — v1 spec and build plan
 
 **Owner:** Cooper Shea
 **Date:** 2026-09-26

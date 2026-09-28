@@ -294,4 +294,4 @@ const vite = await createViteServer({ server: { middlewareMode: true, hmr: { por
 app.use(vite.middlewares);
 
 projectDir('scratch');
-app.listen(PORT, () => console.log(`drafting tool on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`scratch on http://localhost:${PORT}`));

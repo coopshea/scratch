@@ -1,4 +1,4 @@
-# Drafting tool — project context
+# Scratch — project context
 
 Personal project of Cooper Shea. Not JAS Surgical work; keep it separate from that repo.
 
@@ -14,4 +14,4 @@ A three-stage drafting tool: talk (blurt and parse), structure (drag clusters in
 - Model-origin units are marked `origin: model` and `verified: false` until the user fills and verifies them.
 - `.env` holds the API key and is gitignored. Never commit it.
 - `archive/v0-map-prototype/` is the retired lens-map prototype. Reference only.
-- Preview config: `drafting-tool` (port 5178, real parser). `npm run dev:offline` (port 5179) is a sentence-splitting stand-in for UI work only; never leave it open for Cooper, it looks like a broken parser.
+- Preview config: `scratch` (port 5178, real parser). `npm run dev:offline` (port 5179) is a sentence-splitting stand-in for UI work only; never leave it open for Cooper, it looks like a broken parser.
