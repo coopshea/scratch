@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describeError, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
 import {
-  appendEvent, DATA_ROOT, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
+  appendEvent, DATA_ROOT, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
   withLock, writeBoard, writeDraft, writeMeta, writeUnits,
 } from './store.ts';
 import { outlineToStructure, slugify, structureMap, STRUCTURES, type Board, type Lane } from '../shared/structures.ts';
@@ -94,6 +94,11 @@ export function createApp(): Express {
     writeMeta(slug, { title });
     appendEvent(slug, 'human', 'project.create', { title });
     res.json({ slug, title });
+  }));
+
+  app.delete('/api/p/:slug', wrap((req, res) => {
+    trashProject(slugOf(req));
+    res.json({ ok: true });
   }));
 
   app.patch('/api/p/:slug/meta', wrap((req, res) => {

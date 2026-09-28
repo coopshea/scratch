@@ -156,3 +156,17 @@ export function writeArchetypes(list: StructureDef[]) {
   fs.mkdirSync(ROOT, { recursive: true });
   writeAtomic(ARCHETYPES, JSON.stringify(list, null, 2) + '\n');
 }
+
+/**
+ * Delete a document by moving its folder to projects/.trash (named with the time), never erasing it: a wrong
+ * click can be undone by moving the folder back. The deletion is logged in the document's own history first.
+ */
+export function trashProject(slug: string) {
+  assertSlug(slug);
+  const dir = path.join(ROOT, slug);
+  if (!fs.existsSync(dir)) throw new HttpError(404, 'Document not found');
+  appendEvent(slug, 'human', 'project.delete', {});
+  const trash = path.join(ROOT, '.trash');
+  fs.mkdirSync(trash, { recursive: true });
+  fs.renameSync(dir, path.join(trash, `${slug}--${new Date().toISOString().replace(/[:.]/g, '-')}`));
+}

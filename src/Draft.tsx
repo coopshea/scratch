@@ -9,6 +9,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import type { Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
+import { normalizeMarkers } from '../shared/markers.ts';
 import { STRUCTURES, type Board, type Lane, type StructureDef } from '../shared/structures.ts';
 import { api } from './api.ts';
 import { TYPE_INK } from './typeStyle.ts';
@@ -19,6 +20,37 @@ const ANCHOR = /<!--u:([a-z0-9]+)-->/g;
 const SECTION = /^<!--s:([a-z0-9-]+)-->$/;
 const anchorFor = (id: string) => `<!--u:${id}-->`;
 const sectionFor = (lane: string) => `<!--s:${lane}-->`;
+
+const MARKER = /<!--s:[a-z0-9-]+-->/g;
+
+/** After any edit, a marker joined to text (a deleted line break, typing against a divider) gets its line breaks back. */
+const keepMarkersAlone = EditorState.transactionFilter.of((tr) => {
+  if (!tr.docChanged) return tr;
+  const s = tr.newDoc.toString(), fix: { from: number; insert: string }[] = [];
+  for (const m of s.matchAll(MARKER)) {
+    const from = m.index!, to = from + m[0].length;
+    if (from > 0 && s[from - 1] !== '\n') fix.push({ from, insert: '\n' });
+    if (to < s.length && s[to] !== '\n') fix.push({ from: to, insert: '\n' });
+  }
+  return fix.length ? [tr, { changes: fix, sequential: true }] : tr;
+});
+
+/**
+ * The cursor never rests on a divider's line: that line draws as a tall block, and the cursor would stretch to its
+ * height. Moving down lands at the start of the next section; moving up, at the end of the previous one.
+ */
+const keepCursorOffMarkers = EditorState.transactionFilter.of((tr) => {
+  if (!tr.selection && !tr.docChanged) return tr;
+  const doc = tr.newDoc, sel = tr.newSelection.main;
+  if (!sel.empty) return tr;
+  const line = doc.lineAt(sel.head);
+  if (!SECTION.test(line.text)) return tr;
+  const down = sel.head >= tr.startState.selection.main.head;
+  const next = line.number < doc.lines ? doc.line(line.number + 1).from : null;
+  const prev = line.number > 1 ? doc.line(line.number - 1).to : null;
+  const pos = down ? (next ?? prev) : (prev ?? next);
+  return pos === null ? tr : [tr, { selection: { anchor: pos }, sequential: true }];
+});
 
 /** Every lane of the structure gets a section marker, inserted in outline order before the next lane that has one. */
 function ensureSections(doc: string, laneIds: string[]): string {
@@ -295,9 +327,9 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
       window.clearTimeout(saveTimer.current);
       if (pending.current !== null) { api.saveDraft(pending.current); pending.current = null; }
     };
-    const initial = ensureSections(draft, lanes.map((l) => l.id));
+    const initial = ensureSections(normalizeMarkers(draft), lanes.map((l) => l.id));
     const extensions: Extension[] = [
-      history(), drawSelection(), keymap.of([...defaultKeymap, ...historyKeymap]),
+      history(), drawSelection(), keymap.of([...defaultKeymap, ...historyKeymap]), keepMarkersAlone, keepCursorOffMarkers,
       markdown(), syntaxHighlighting(ink), sections, anchorPlugin, EditorView.lineWrapping,
       EditorView.contentAttributes.of({ spellcheck: 'true', autocorrect: 'on', autocapitalize: 'sentences' }),
       EditorView.updateListener.of((u) => {
@@ -339,10 +371,36 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
   // Outline content changed (open/close, units, board): re-align.
   useEffect(() => { measure(); });
 
+  // Hovering an outline item finds its chip in the text (unless the hover came from the chip itself).
+  const hoverFromChip = useRef(false);
   useEffect(() => {
-    if (!hover || !host.current) return;
+    if (!hover || !host.current || hoverFromChip.current) return;
     host.current.querySelector(`.cm-anchor[data-id="${hover}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [hover]);
+
+  /**
+   * Chips work both ways. Hovering a chip highlights its idea in the outline. Clicking a chip opens that idea in the
+   * outline (its full text shows), brings it into view and marks it current; the cursor stays in the text, so the
+   * writer keeps writing with the idea open beside them.
+   */
+  const [current, setCurrent] = useState<string | null>(null);
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  useEffect(() => {
+    const el = host.current; if (!el) return;
+    const chipOf = (e: Event) => (e.target as HTMLElement).closest<HTMLElement>('.cm-anchor')?.dataset.id ?? null;
+    const over = (e: MouseEvent) => { const id = chipOf(e); if (id) { hoverFromChip.current = true; setHover(id); } };
+    const out = (e: MouseEvent) => { if (chipOf(e)) { hoverFromChip.current = false; setHover(null); } };
+    const click = (e: MouseEvent) => {
+      const id = chipOf(e); if (!id) return;
+      setCurrent(id);
+      setOpen((s) => new Set(s).add(id));
+      onSelectRef.current(id); // the note panel opens on the right, without taking the cursor from the page
+      requestAnimationFrame(() => colRef.current?.querySelector(`.cue[data-id="${id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+    };
+    el.addEventListener('mouseover', over); el.addEventListener('mouseout', out); el.addEventListener('click', click);
+    return () => { el.removeEventListener('mouseover', over); el.removeEventListener('mouseout', out); el.removeEventListener('click', click); };
+  }, []);
 
   const insert = (id: string) => {
     const v = view.current; if (!v) return;
@@ -351,12 +409,56 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
     v.focus();
   };
 
-  const move = (id: string, to: string) => {
+  /** Move an idea into a section, before `beforeId` (or at the end). Within its own section this reorders it. */
+  const move = (id: string, to: string, beforeId: string | null = null) => {
     const u = byId.get(id), l = laneById.get(to);
-    if (!u || !l || laneOf(u) === to) return;
+    if (!u || !l || beforeId === id) return;
+    if (laneOf(u) === to && beforeId === null && (assign[to] ?? []).at(-1) === id) return;
     const next: Record<string, string[]> = Object.fromEntries(Object.entries(assign).map(([k, v]) => [k, v.filter((x) => x !== id)]));
-    next[to] = [...(next[to] ?? []), id];
+    const list = next[to] ?? [];
+    const at = beforeId ? list.indexOf(beforeId) : -1;
+    next[to] = at < 0 ? [...list, id] : [...list.slice(0, at), id, ...list.slice(at)];
     onBoard({ ...board, lanes: { ...board.lanes, [board.structure]: next } });
+  };
+
+  /**
+   * Dropping: a section accepts a drop anywhere down its band (to the next divider), not just over its items.
+   * Where the pointer is decides the order: the idea lands before the first top-level item below it, and a line
+   * shows the spot. Holding near the top or bottom edge scrolls the page, as in Structure.
+   */
+  const [dropAt, setDropAt] = useState<{ lane: string; before: string | null; y: number } | null>(null);
+  useEffect(() => {
+    const clear = () => { setDropAt(null); setDropLane(null); };
+    window.addEventListener('dragend', clear);
+    return () => window.removeEventListener('dragend', clear);
+  }, []);
+  const dropTarget = (laneId: string, clientY: number) => {
+    const el = sectionEls.current.get(laneId); if (!el) return null;
+    const top = el.getBoundingClientRect().top;
+    const heads = [...el.querySelectorAll<HTMLElement>(':scope > .cue.depth-0')];
+    const hit = heads.find((h) => { const r = h.getBoundingClientRect(); return clientY < r.top + r.height / 2; });
+    const y = hit ? hit.getBoundingClientRect().top - top - 2
+      : heads.length ? heads[heads.length - 1].getBoundingClientRect().bottom - top + 2 : (el.querySelector('h3')?.getBoundingClientRect().bottom ?? top) - top + 4;
+    return { lane: laneId, before: hit?.dataset.id ?? null, y };
+  };
+  const dragOver = (laneId: string) => (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('application/x-unit')) return;
+    e.preventDefault();
+    setDropLane(laneId);
+    const t = dropTarget(laneId, e.clientY);
+    setDropAt((d) => (t && (d?.lane !== t.lane || d.before !== t.before || Math.abs(d.y - t.y) > 1) ? t : d));
+  };
+  const drop = (laneId: string) => (e: React.DragEvent) => {
+    const id = e.dataTransfer.getData('application/x-unit');
+    const t = dropTarget(laneId, e.clientY);
+    setDropLane(null); setDropAt(null);
+    if (id) { e.preventDefault(); move(id, laneId, t?.before ?? null); }
+  };
+  const edgeScroll = (e: React.DragEvent) => {
+    const box = scrollRef.current; if (!box) return;
+    const r = box.getBoundingClientRect(), EDGE = 70, MAX = 18;
+    const near = e.clientY < r.top + EDGE ? -(1 - (e.clientY - r.top) / EDGE) : e.clientY > r.bottom - EDGE ? 1 - (r.bottom - e.clientY) / EDGE : 0;
+    if (near) box.scrollTop += Math.sign(near) * Math.ceil(MAX * Math.min(1, Math.abs(near)) ** 2);
   };
 
   const toggle = (id: string) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
@@ -369,18 +471,24 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, live, uses, placedLane, laneById]);
 
+  /** A click opens or closes an idea; only a press held for a moment and then moved drags it. */
+  const pressedAt = useRef(0);
+  const HOLD_MS = 180;
+
   const cue = ({ unit: u, depth }: Row) => {
     const n = uses.get(u.id) ?? 0;
     return (
-      <div key={u.id} className={`cue depth-${depth} ${n ? 'used' : ''}`} draggable
+      <div key={u.id} data-id={u.id} className={`cue depth-${depth} ${n ? 'used' : ''} ${hover === u.id ? 'hl' : ''} ${current === u.id ? 'current' : ''}`} draggable
+        onPointerDown={() => { pressedAt.current = Date.now(); }}
         onDragStart={(e) => {
+          if (Date.now() - pressedAt.current < HOLD_MS) { e.preventDefault(); return; }
           e.dataTransfer.setData('text/plain', anchorFor(u.id));
           e.dataTransfer.setData('application/x-unit', u.id);
           e.dataTransfer.effectAllowed = 'copyMove';
         }}
-        onMouseEnter={() => setHover(u.id)} onMouseLeave={() => setHover(null)}>
-        <div className="cue-line">
-          <button className="disclose" onClick={() => toggle(u.id)} aria-label="Show original">{open.has(u.id) ? '▾' : '▸'}</button>
+        onMouseEnter={() => { hoverFromChip.current = false; setHover(u.id); }} onMouseLeave={() => setHover(null)}>
+        <div className="cue-line" onClick={() => toggle(u.id)}>
+          <button className="disclose" aria-label="Show original">{open.has(u.id) ? '▾' : '▸'}</button>
           {!(u.type === 'claim' && isRoot(u)) && <em style={{ color: TYPE_INK[u.type] }}>{u.type}</em>}
           <span className={`cue-label ${isRoot(u) ? 'is-claim' : ''}`} onDoubleClick={() => insert(u.id)}>{u.label}</span>
           {n > 1 && <span className="uses">×{n}</span>}
@@ -390,16 +498,18 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
     );
   };
 
-  const section = (laneId: string, y: number) => {
+  const section = (laneId: string, y: number, h: number) => {
     const lane: Lane | undefined = laneById.get(laneId);
     const items = rowsFor(laneId);
-    return (
-      <section key={laneId} className={`cue-block ${active.lane === laneId ? 'active' : ''} ${dropLane === laneId ? 'drop' : ''}`}
+    return [
+      // The section's whole band accepts a drop; this zone is not measured, so it never changes the alignment.
+      <div key={`z-${laneId}`} className={`cue-zone ${dropLane === laneId ? 'drop' : ''}`} style={{ top: y, height: h }}
+        onDragOver={dragOver(laneId)} onDrop={drop(laneId)} />,
+      <section key={laneId} className={`cue-block ${active.lane === laneId ? 'active' : ''}`}
         style={{ top: y }}
         ref={(el) => { if (el) sectionEls.current.set(laneId, el); else sectionEls.current.delete(laneId); }}
-        onDragOver={(e) => { if (e.dataTransfer.types.includes('application/x-unit')) { e.preventDefault(); setDropLane(laneId); } }}
-        onDragLeave={() => setDropLane((d) => (d === laneId ? null : d))}
-        onDrop={(e) => { const id = e.dataTransfer.getData('application/x-unit'); setDropLane(null); if (id) { e.preventDefault(); move(id, laneId); } }}>
+        onDragOver={dragOver(laneId)} onDrop={drop(laneId)}>
+        {dropAt?.lane === laneId && <div className="cue-drop-line" style={{ top: dropAt.y }} />}
         <h3 className={lane?.required && !items.length ? 'gap' : ''}>{lane?.name ?? laneId}</h3>
         {items.map(cue)}
         {active.lane === laneId && suggestions.map((u) => (
@@ -411,16 +521,16 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
             </div>
           </div>
         ))}
-      </section>
-    );
+      </section>,
+    ];
   };
 
   return (
-    <div className="draft-rows" ref={scrollRef}>
+    <div className="draft-rows" ref={scrollRef} onDragOver={edgeScroll}>
       {hover && <style>{`.cm-anchor[data-id="${hover}"] { background: var(--highlight); }`}</style>}
       <div className="draft-grid">
         <div className="cue-col" ref={colRef} style={{ height: colH || undefined }}>
-          {rows.map((r) => section(r.lane, r.y))}
+          {rows.map((r, i) => section(r.lane, r.y, (i + 1 < rows.length ? rows[i + 1].y : colH || r.y + 200) - r.y))}
         </div>
         <div className="page" ref={host} />
       </div>

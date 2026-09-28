@@ -10,7 +10,7 @@ import { HomeSelect, TypeSelect } from './TypeSelect.tsx';
 
 const dictionary = { ...en, placeholders: { ...en.placeholders, default: '', emptyDocument: '' } };
 
-function NoteEditor({ unit, onSave, readOnly }: { unit: Unit; onSave: (doc: unknown[]) => void; readOnly: boolean }) {
+function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave: (doc: unknown[]) => void; readOnly: boolean; takeFocus: boolean }) {
   const editor = useCreateBlockNote({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     initialContent: unit.note && unit.note.length ? (unit.note as any) : undefined,
@@ -19,9 +19,10 @@ function NoteEditor({ unit, onSave, readOnly }: { unit: Unit; onSave: (doc: unkn
   });
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
-  // Open with a blinking cursor at the end, so dictation lands in the note immediately.
+  // Open with a blinking cursor at the end, so dictation lands in the note immediately (not while drafting: the
+  // writer keeps writing in the page with the note open beside it).
   useEffect(() => {
-    if (readOnly) return;
+    if (readOnly || !takeFocus) return;
     const id = window.setTimeout(() => {
       const doc = editor.document;
       editor.setTextCursorPosition(doc[doc.length - 1], 'end');
@@ -51,9 +52,11 @@ type Props = {
   onFocus: (id: string) => void;
   readOnly?: boolean;
   version?: string;
+  /** Put the cursor in the note on open. Off in Draft, where the writer keeps writing in the page. */
+  takeFocus?: boolean;
 };
 
-export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, readOnly = false, version = '' }: Props) {
+export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, readOnly = false, version = '', takeFocus = true }: Props) {
   const roots = units.filter((u) => isRoot(u) && u.status !== 'cut' && u.id !== unit.id);
   const blurt = blurts.find((b) => b.id === unit.blurtId);
   const children = units.filter((u) => u.home === unit.id && u.status !== 'cut');
@@ -109,7 +112,7 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
       )}
 
       <div className="note">
-        <NoteEditor key={unit.id + version} unit={unit} readOnly={readOnly} onSave={(note) => onPatch(unit.id, { note })} />
+        <NoteEditor key={unit.id + version} unit={unit} readOnly={readOnly} takeFocus={takeFocus} onSave={(note) => onPatch(unit.id, { note })} />
       </div>
     </aside>
   );

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ProjectSummary } from '../shared/types.ts';
 import { projects, slug as current } from './api.ts';
 
@@ -15,14 +15,38 @@ const go = (slug: string) => { location.search = `?p=${encodeURIComponent(slug)}
 export function DocList() {
   const [docs, setDocs] = useState<ProjectSummary[]>([]);
   useEffect(() => { projects.list().then(setDocs); }, []);
+
+  // Deleting asks twice: the × turns into "delete?" for a few seconds. The document goes to projects/.trash.
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  const askRemove = async (slug: string) => {
+    window.clearTimeout(timer.current);
+    if (confirming !== slug) {
+      setConfirming(slug);
+      timer.current = window.setTimeout(() => setConfirming(null), 3000);
+      return;
+    }
+    setConfirming(null);
+    await projects.remove(slug);
+    const rest = docs.filter((d) => d.slug !== slug);
+    if (slug === current) go(rest[0]?.slug ?? (await projects.create('untitled')).slug);
+    else setDocs(rest);
+  };
+
   return (
     <nav className="docs">
       <button className="link new" onClick={async () => go((await projects.create('untitled')).slug)}>new</button>
       {docs.map((d) => (
-        <button key={d.slug} className={`doc ${d.slug === current ? 'on' : ''}`} onClick={() => go(d.slug)}>
-          <span className="doc-title">{d.title}<span className="doc-when">{ago(d.updatedAt)}</span></span>
-          {d.summary && <span className="doc-summary">{d.summary}</span>}
-        </button>
+        <div key={d.slug} className={`doc-row ${confirming === d.slug ? 'confirming' : ''}`}>
+          <button className={`doc ${d.slug === current ? 'on' : ''}`} onClick={() => go(d.slug)}>
+            <span className="doc-title">{d.title}<span className="doc-when">{ago(d.updatedAt)}</span></span>
+            {d.summary && <span className="doc-summary">{d.summary}</span>}
+          </button>
+          <button className={`remove ${confirming === d.slug ? 'confirm' : ''}`} onClick={() => askRemove(d.slug)}
+            aria-label={confirming === d.slug ? `Confirm delete ${d.title}` : `Delete ${d.title}`}>
+            {confirming === d.slug ? 'delete?' : '×'}
+          </button>
+        </div>
       ))}
     </nav>
   );

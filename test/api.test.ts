@@ -207,3 +207,22 @@ describe('readwise without a token', () => {
     expect((await request(app).post(`/api/p/${slug}/readwise/adopt`).send({ id: '1' })).status).toBe(400);
   });
 });
+
+describe('deleting a document', () => {
+  it('moves it to .trash (recoverable), logs it, and drops it from the list', async () => {
+    const slug = await newProject('Throwaway');
+    await blurt(slug);
+    expect((await request(app).delete(`/api/p/${slug}`)).status).toBe(200);
+    expect(fs.existsSync(path.join(DATA, slug))).toBe(false);
+    const trashed = fs.readdirSync(path.join(DATA, '.trash')).find((d) => d.startsWith(`${slug}--`))!;
+    expect(fs.existsSync(path.join(DATA, '.trash', trashed, 'units.json'))).toBe(true);
+    expect(readEvents(DATA, `.trash/${trashed}`).at(-1)).toMatchObject({ type: 'project.delete', author: 'human' });
+    const list = (await request(app).get('/api/projects')).body as { slug: string }[];
+    expect(list.map((p) => p.slug)).not.toContain(slug);
+  });
+
+  it('refuses slugs that are not documents', async () => {
+    expect((await request(app).delete('/api/p/.trash')).status).toBe(400);
+    expect((await request(app).delete('/api/p/no-such-doc')).status).toBe(404);
+  });
+});

@@ -168,7 +168,14 @@ select:focus { outline: none; text-decoration: underline; }
 /* documents */
 .docs { border-right: 1px solid var(--rule-strong); overflow-y: auto; padding: 14px 0; display: flex; flex-direction: column; background: var(--paper-2); }
 .docs .new { align-self: flex-start; margin: 0 16px 10px; }
-.doc { background: none; border: 0; text-align: left; padding: 8px 16px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-left: 2px solid transparent; }
+.doc-row { position: relative; display: flex; flex-direction: column; }
+.doc { background: none; border: 0; text-align: left; padding: 8px 40px 8px 16px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-left: 2px solid transparent; }
+/* Same quiet × as outlines and levels, shown on hover; a second click confirms. */
+.doc-row .remove { position: absolute; right: 10px; bottom: 8px; border: 0; background: none; padding: 0 3px; cursor: pointer; font-size: 14px; line-height: 1; color: var(--pencil); opacity: 0; transition: opacity .15s; }
+.doc-row:hover .remove { opacity: .8; }
+.doc-row .remove:hover { color: var(--red-ink); opacity: 1; }
+.doc-row .remove.confirm { opacity: 1; color: var(--red-ink); font-size: 12px; font-style: italic; }
+.doc-row.confirming .doc-when { visibility: hidden; }
 .doc:hover { background: rgba(47, 39, 29, .04); }
 .doc.on { border-left-color: var(--ink); }
 .doc-title { font-size: 15px; font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
@@ -232,15 +239,21 @@ select:focus { outline: none; text-decoration: underline; }
 .cue-col { position: relative; border-right: 1px solid var(--rule-strong); min-height: 100%; }
 .cue-block { position: absolute; left: 0; right: 0; padding: 10px 24px 10px 28px; border-top: 1px dashed var(--rule-strong); transition: background .15s; }
 .cue-block.active { background: rgba(214, 167, 58, .08); box-shadow: inset 2px 0 0 var(--ochre); }
-.cue-block.drop { background: rgba(61, 107, 58, .08); }
+.cue-zone { position: absolute; left: 0; right: 0; transition: background .15s; }
+.cue-zone.drop { background: rgba(61, 107, 58, .08); }
+.cue-drop-line { position: absolute; left: 24px; right: 24px; height: 0; border-top: 2px solid var(--green-ink); pointer-events: none; }
 .cue-block h3 { margin: 0 0 6px; font-size: 14px; font-weight: 400; font-variant: small-caps; letter-spacing: .04em; text-transform: lowercase; color: var(--pencil); }
 .cue-block h3.gap { color: var(--red-ink); }
-.cue { padding: 3px 0; cursor: grab; }
+.cue { padding: 3px 0; cursor: pointer; user-select: none; }
+.cue:active { cursor: grab; }
 .cue.depth-1 { padding-left: 18px; }
 .cue-line { display: flex; gap: 8px; align-items: baseline; font-size: 16px; line-height: 1.45; }
 .cue-line em { font-style: normal; font-variant: small-caps; font-size: 12px; }
 .cue-label.is-claim { font-weight: 600; }
 .cue.used .cue-label { text-decoration: line-through; text-decoration-color: var(--pencil); color: var(--pencil); }
+.cue.hl > .cue-line { background: var(--highlight); border-radius: 3px; }
+.cue.current { box-shadow: inset 2px 0 0 var(--ochre); padding-left: 8px; }
+.cue.depth-1.current { padding-left: 26px; }
 .cue.suggestion { border-left: 1px dotted var(--ochre); padding-left: 8px; margin-top: 4px; cursor: default; }
 .cue.suggestion .cue-label { color: var(--ink-soft); font-style: italic; }
 .cue.suggestion .link { font-size: 13px; }
@@ -256,7 +269,7 @@ select:focus { outline: none; text-decoration: underline; }
 .page .cm-selectionBackground, .page .cm-focused .cm-selectionBackground { background: rgba(166, 58, 43, .16) !important; }
 .cm-section { pointer-events: none; }
 .cm-section-rule { border-top: 1px dashed var(--rule-strong); height: 14px; margin: 0 -40px; }
-.cm-anchor { font-size: 12px; font-variant: small-caps; letter-spacing: .04em; color: var(--ink-soft); border-bottom: 1px dotted var(--pencil); padding: 0 2px; cursor: default; }
+.cm-anchor { font-size: 12px; font-variant: small-caps; letter-spacing: .04em; color: var(--ink-soft); border-bottom: 1px dotted var(--pencil); padding: 0 2px; cursor: pointer; }
 .cm-anchor.callback { background: rgba(168, 116, 26, .14); }
 .page.past { white-space: pre-wrap; padding: 28px 32px; font-size: 18px; line-height: 1.75; color: var(--ink-soft); max-width: 740px; }
 .levels-canvas .unit { opacity: .75; background: transparent; }

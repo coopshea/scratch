@@ -129,7 +129,7 @@ export function App() {
   const selected = units.find((u) => u.id === selectedId && (past || u.status !== 'cut')) ?? null;
 
   const sheet = selected && (
-    <NoteSheet unit={selected} units={units} blurts={blurts} onPatch={onPatch} readOnly={!!history}
+    <NoteSheet unit={selected} units={units} blurts={blurts} onPatch={onPatch} readOnly={!!history} takeFocus={stage !== 'draft'}
       version={history ? String(history.count) : ''} onClose={() => setSelectedId(null)} onFocus={setSelectedId} />
   );
 
