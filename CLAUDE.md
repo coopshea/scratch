@@ -2,7 +2,7 @@
 
 Personal project of Cooper Shea. Not JAS Surgical work; keep it separate from that repo.
 
-A three-stage drafting tool: talk (blurt and parse), structure (drag clusters into a scaffold), draft (Cornell outline beside a markdown editor). Read `docs/spec-v1.md` first, then `README.md` for the stack and how to run it. `docs/article-candidates.md` lists the essays used as test beds; gas turbines is first.
+A three-stage drafting tool: talk (blurt and parse), structure (drag clusters onto outline levels), draft (outline aligned beside a markdown page). Read `docs/rationale.md` first: it holds the philosophy, the decisions and why, how Cooper works, and the technical gotchas. Then `README.md` for the stack and how to run it, and `docs/issues.md` for open work. `docs/article-candidates.md` lists the essays used as test beds; gas turbines is first.
 
 ## Working rules
 - Get out of the writer's way. Minimal features around a markdown editor, as few clicks as possible. Where the writer puts something, it goes; structure rules suggest and mark, they never block.
@@ -13,5 +13,4 @@ A three-stage drafting tool: talk (blurt and parse), structure (drag clusters in
 - Every mutation goes through the server and is logged to `events.jsonl` with its author (human, model, or system). Do not add features that bypass it.
 - Model-origin units are marked `origin: model` and `verified: false` until the user fills and verifies them.
 - `.env` holds the API key and is gitignored. Never commit it.
-- `archive/v0-map-prototype/` is the retired lens-map prototype. Reference only.
 - Preview config: `scratch` (port 5178, real parser). `npm run dev:offline` (port 5179) is a sentence-splitting stand-in for UI work only; never leave it open for Cooper, it looks like a broken parser.

@@ -26,8 +26,6 @@ export const api = {
   blurt: (text: string) => call<ParseResponse>('/blurts', { method: 'POST', body: JSON.stringify({ text }) }),
   reparse: (id: string) => call<ParseResponse>(`/blurts/${id}/parse`, { method: 'POST' }),
   patch: (id: string, patch: Partial<Unit>) => call<Unit>(`/units/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
-  positions: (moves: { id: string; x: number; y: number }[], auto = false) =>
-    call<{ ok: true }>(`/positions${auto ? '?auto=1' : ''}`, { method: 'POST', body: JSON.stringify(moves) }),
   upload: async (file: File) => {
     const res = await fetch(`${base}/assets`, { method: 'POST', headers: { 'x-filename': file.name }, body: file });
     const body = await res.json();

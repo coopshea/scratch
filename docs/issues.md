@@ -1,6 +1,6 @@
 # Issues
 
-Open work, newest first. Close an item by moving it to the bottom with a date.
+Open work, newest first. Delete an item when it ships; git history keeps the record.
 
 ## Open
 
@@ -25,15 +25,20 @@ Open questions:
 
 Draft now moves an idea to a section when it is placed there as a chip, and a local keyword match flags ideas mentioned by name but not placed ("move here"). The keyword match misses paraphrase. Options, in order of cost: better local similarity (stemming, synonyms from the vocabulary); Claude Haiku on the paragraph at the cursor, debounced; later a small local model. Suggestions only, never automatic, and never text written into the draft.
 
+### Placeholders while drafting
+**Added:** 2026-09-27. Typing `TK` plus a note in the draft creates an evidence stub and keeps the writer writing. `FIG` plus a description creates an artifact stub. Both show as open until filled.
+
+### Draft back to the board
+**Added:** 2026-09-27. Select text in the draft and make it a unit (origin: draft), so ideas that appear while writing join the graph.
+
+### Post-hoc evidence label
+**Added:** 2026-09-27. Evidence attached to a claim after that claim was placed in the draft is labeled "found after position taken." Information, not an error. The event log already has what is needed.
+
 ### Thesis "what would change my mind" field
-**Added:** 2026-09-26. Required before the evidence pass, per the spec.
+**Added:** 2026-09-26. The writer's prior, stated before research.
 
 ### End-of-draft checks
 **Added:** 2026-09-26. Style lint (rules to be written together), coinage prior-art check, coverage check. All flag only.
 
 ### Suggestion actions
 **Added:** 2026-09-26. Find a source, and find a parallel or example. Each produces an empty stub with a headline and one or two links.
-
-## Closed
-
-- **2026-09-26 Outline pinned to the editor.** Built as aligned rows plus cursor follow: section markers in the draft render as dashed rules across both columns, each outline section sits level with its text, the shorter side gets a spacer, and the section holding the cursor is highlighted.

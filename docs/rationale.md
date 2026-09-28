@@ -1,0 +1,126 @@
+# Scratch — rationale for agents
+
+Why Scratch is shaped the way it is. Read this before changing behavior. `docs/issues.md` is the open work. Earlier plans and the first prototype are in git history.
+
+Last updated 2026-09-27, after the first build session with Cooper.
+
+---
+
+## What it is, and who it is for
+
+Scratch is a local tool for getting from a brain dump to a human-written draft, then editing it. Cooper is the user. He reads and annotates in Readwise, thinks out loud (often by dictation), and writes essays, including worked technical pieces and opinion pieces. Scratch is a helper to that process, not a replacement for it.
+
+Three stages, as tabs, not doors:
+
+1. **Talk.** Blurt freely. A parser cuts the blurt into typed units in Cooper's own words, each with a 3–6 word concept label. Units cluster around claims in a force graph.
+2. **Structure.** The same graph laid over an outline's levels. Dragging a cluster onto a level locks it there. This turns nonlinear thinking into a linear outline.
+3. **Draft.** An outline column beside a plain markdown page, aligned row by row, so there is never a blank page.
+
+## How it got here
+
+It started as a public "map of open problems worth solving" with disciplinary lenses (physics, economics, narrative) that restyled a problem graph. It was prompted by a John Platt interview on AI for science: turning a problem into something scorable, ranking by optimistic bounds, the gap between understanding and predicting, taste versus rigor. It is in git history.
+
+It pivoted because a map is a destination. Nobody returns to a graph. People return to a problem they are stuck on and a place to write about it. The useful product is the path from capture to structure to draft. Any map of problems should emerge later from the units and vocabulary that writing leaves behind.
+
+## Units
+
+Every unit has exactly one type. The parser assigns it; the writer can change it.
+
+| Type | What it is |
+|---|---|
+| claim | Something asserted that could be wrong. Claims are cluster roots. |
+| evidence | A data point, result, citation, or source. |
+| story | An anecdote or concrete example. |
+| question | Something not yet known. |
+| objection | A case against a claim, including the writer's own doubts. |
+| concept | A term that needs defining. |
+| coinage | A phrase, analogy, or acronym the writer wants to stick. It carries a prior-art field: who named something similar first. Citing an established idea beats inventing a grand new name. |
+| artifact | A figure, code block, or demo, described now and built later. |
+
+Every non-claim unit belongs to one claim or is loose. Units are cut, never deleted; cuts stay in history.
+
+---
+
+## Principles, most important first
+
+**1. The writer writes.** The model never writes prose into the draft. It parses, suggests stubs with empty bodies, and flags. Spelling and typos are its only edits to the draft. The reasons: the voice has to be Cooper's, the writing is the thinking, and he has to trust the tool enough to keep blurting into it.
+
+**2. Cut, never paraphrase.** Parsed units are verbatim slices of the blurt. The server finds each slice in the raw text and flags anything the model reworded. Only the label is abstracted: "law of the minimum", not a summary of the sentence.
+
+**3. Get out of the writer's way.** Keep the features minimal and the clicks few. Scratch is basically a markdown editor with just enough around it. When the writer puts something somewhere, it goes there. Structure rules may mark and suggest, but they never block. This was learned the hard way: the first version had rigid type rules per level and single-item slots. Cooper hit them immediately ("it won't let me") and asked for them to go. Now an off-type item gets a faint dotted outline and a hover note, and nothing is refused.
+
+**4. If it isn't clear from using it, it isn't clear.** No helper copy, no instructions on screen, no legends. Cooper removed "Fix types, labels, and homes. The words are yours and stay as written" and the color legend on sight. Put meaning in the design (small-caps type words on nodes, ink versus faint), not in sentences.
+
+**5. Everything stays visible.** No infinite canvas and no trips across a zoomed-out map. The Talk graph pulls toward the center and rescales to fit the pane. Selecting a node never moves the view; it dims the rest and opens the note beside the graph. No two nodes ever overlap. That is a hard rule, enforced with a final pass every frame.
+
+**6. Honest provenance.** Every mutation goes through the server and is appended to `events.jsonl` with its author: `human`, `model`, or `system`. Automatic moves are logged as `system`, so history never credits Cooper with something the tool did. History is read-only replay with no restore button. Cut things disappear from the working view but stay in history. Model-origin units are `origin: model, verified: false` until Cooper fills and verifies them. Evidence found after a position was taken should be labeled as such (not built yet).
+
+**7. Local and private.** Cooper's writing lives in `projects/`, which is gitignored. The public repo is code and docs only. The API key is in `.env`, also gitignored.
+
+**8. Drop-in libraries over hand-built primitives.** d3-force for layout, BlockNote for rich-text notes, CodeMirror 6 for the draft, Downshift for the combobox, the official Anthropic SDK for the parser. Point out when an existing tool already does what is asked (Heptabase, Gingko Writer, Obsidian Canvas, and Scrivener each overlap one stage).
+
+**9. The look: a sepia lab notebook.** Paper background, brown ink, serif type, hairline and dashed rules, and graph paper behind the maps. Only questions (blue) and objections (red) get their own ink. Less is more.
+
+---
+
+## Decisions, and the reasons behind them
+
+### Talk
+- **Contained d3 force graph, not React Flow.** React Flow is an infinite canvas: clicking a node zoomed to it and lost everything else. Cooper asked for "everything pulled to the center and scaled so it's readable."
+- **Controlled vocabulary.** The parser must reuse an existing label when a unit expresses the same concept. Labels are the join key for clustering and for the future map. They are limited to 6 words and 40 characters, enforced on the server.
+- **One home, many references.** A non-claim unit belongs to one claim or is loose. The same idea can be placed in several sections of the draft by reference.
+- **The note editor takes focus on open,** and the blurt box takes it back on close. Cooper dictates, so the cursor must already be blinking where text should land.
+
+### Structure (page 2)
+- **The same graph as page 1,** with full-width levels drawn as dashed dividers and level names at far left. Clusters sit *between* the dividers, not on them. This matches Cooper's sketch. A card-and-tray version was built first and replaced.
+- **Locking.** Drop a cluster on the left half of a level and it locks there, full ink, pulled left. Loose clusters float on the right, faint. Drop on the right half to release.
+- **Stretched clusters are fine.** A unit pulled out of its cluster onto another level keeps a faint dotted thread back to its claim. Cooper wants these kept visible and weak. Do not hide them. Edge repulsion was considered and rejected, because it fights the locks and would make pinned items jitter.
+- **Levels grow** to fit what is placed in them. Placed claims pin to the top of their level so their children stack below.
+- **Outlines.** Paper, persuasive, and teaching are templates. The first edit to a built-in saves the writer's own copy ("my paper") with every placement carried over. The "+" under the level names opens an editable combobox: type to filter, Tab takes the top match, Enter keeps exactly what was typed. Common levels number themselves (argument 4). Don't subdivide levels further; an argument level holding its claim, evidence, and objections is already the subitem structure. Custom outlines are stored in `projects/_archetypes.json`, shared across documents.
+- **Support marks on claims** are mechanical, never a model's opinion: ○ no evidence, ◐ evidence not checked or no objection, ● checked evidence plus an objection.
+
+### Draft (page 3)
+- **Aligned rows plus cursor follow.** The draft holds `<!--s:lane-->` section markers, rendered as dashed rules across both columns. Each outline section sits level with its text, and whichever side is shorter gets a spacer. The section holding the cursor is highlighted. This comes from the sketch, where the divider under "hook" crosses into the editor.
+- **Anchors are HTML comments too** (`<!--u:id-->`). They render as quiet chips, and exported markdown stays clean.
+- **The writer's placement wins.** Placing an idea in a section, by drag or double-click, moves it there with no type or slot rules. A local keyword match flags ideas mentioned by name but not placed, and offers "move here". A model or small local model for paraphrase detection is a later option (see issues). It should only ever suggest.
+- **Strikethrough on use, highlight on callback, hover to find.** These run off explicit anchors, never inferred links. Loose semantic linking was too fuzzy in Cooper's past tools.
+
+### Export
+- **Clean markdown for a reader.** Section markers drop out. Evidence placed in the text becomes numbered footnotes quoting it. Figures still to make become `*[Figure: …]*`. Other chips disappear, leaving only prose.
+
+### Name
+- **"Scratch"** began as the default document's slug and became the product name.
+
+---
+
+## Staying out of the rabbit hole
+
+Cooper's failure mode is researching instead of writing. The tool should make writing the default:
+
+- **Drafting has no research in it.** A gap becomes a placeholder and the writing continues.
+- **State the prior before searching:** what would change the writer's mind.
+- **Research is one budgeted pass after the first draft.** Claims still unsupported after the budget become objections or get cut.
+- **Describe figures now, build them later.**
+- **v1 is done when every section has prose,** whatever the support marks say.
+
+Motivated reasoning (taking a position, then finding evidence) is allowed because it gets writing done. It should be visible, not blocked. The placeholders, the prior field, and the post-hoc evidence label are open issues.
+
+---
+
+## Working with Cooper
+
+- **Direction by use.** He tries the tool, reacts, and sometimes sends a sketch. Build what he describes, verify it in the browser, and report plainly.
+- **"Brainstorm with me" means options plus a recommendation, not a build.** Wait for his pick on anything that changes how the tool feels.
+- **Readwise is the main input path** and the next big feature.
+- **Git.** Commit and push only when asked. The repo is public: `github.com/coopshea/scratch`.
+- **Previews.** Never leave the offline stand-in parser running for him; it looks like a broken parser.
+
+## Technical gotchas that cost time
+
+- **Hidden tabs pause `requestAnimationFrame`.** The preview pane is often in the background. Any layout that only moves on animation frames renders as nothing. Both graphs run a synchronous up-front layout (tick the simulation directly) on first view and on resize.
+- **d3 tick handlers are created once.** They must read geometry from refs, not from closed-over React state, or they keep using the first render's sizes.
+- **React runs layout effects before normal effects.** Anything the first layout effect needs, such as the simulation, must be created in an earlier layout effect.
+- **CodeMirror refuses dispatch inside its measure pass.** Defer with `queueMicrotask`. Block widgets must come from a `StateField`, not a view plugin.
+- **The overlap resolver respects per-axis pins** (`fx` and `fy`). Page 2 alternates region clamping with overlap passes, then stacks leftovers downward within each region. The generic push can shove nodes out of a level.
+- **Server changes need a restart.** `tsx` is not watching. Vite hot-reloads the client only.
+- **Preview screenshots in the small pane sometimes show a half-painted frame.** Trust DOM measurements over the image.

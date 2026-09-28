@@ -1,6 +1,6 @@
 # Scratch
 
-Blurt, structure, draft. Turns rapid nonlinear thinking into a human-written v1 draft. The model cuts and labels; it never writes your prose. Spec and build plan: [docs/spec-v1.md](docs/spec-v1.md).
+Blurt, structure, draft. Turns rapid nonlinear thinking into a human-written v1 draft. The model cuts and labels; it never writes your prose. Design rationale: [docs/rationale.md](docs/rationale.md).
 
 ## Run
 

@@ -30,8 +30,6 @@ export interface Unit {
   note: unknown[] | null;
   priorArt?: string;
   flags?: { notVerbatim?: boolean; labelTooLong?: boolean };
-  x?: number;
-  y?: number;
   createdAt: string;
 }
 

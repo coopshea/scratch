@@ -259,21 +259,6 @@ app.patch('/api/p/:slug/units/:id', wrap(async (req, res) => {
   res.json(unit);
 }));
 
-app.post('/api/p/:slug/positions', wrap(async (req, res) => {
-  const slug = slugOf(req);
-  const moves = Array.isArray(req.body) ? req.body as { id: string; x: number; y: number }[] : [];
-  await withLock(slug, () => {
-    const units = readUnits(slug);
-    const byId = new Map(units.map((u) => [u.id, u]));
-    const applied = moves.filter((m) => byId.has(m.id) && Number.isFinite(m.x) && Number.isFinite(m.y))
-      .map((m) => { const u = byId.get(m.id)!; u.x = Math.round(m.x); u.y = Math.round(m.y); return { id: m.id, x: u.x, y: u.y }; });
-    if (!applied.length) return;
-    writeUnits(slug, units);
-    appendEvent(slug, req.query.auto ? 'system' : 'human', req.query.auto ? 'layout.auto' : 'layout.move', applied);
-  });
-  res.json({ ok: true });
-}));
-
 app.post('/api/p/:slug/assets', express.raw({ type: () => true, limit: '25mb' }), wrap((req, res) => {
   const slug = slugOf(req);
   const name = String(req.header('x-filename') ?? 'upload.bin');
