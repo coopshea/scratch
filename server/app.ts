@@ -6,7 +6,7 @@ import path from 'node:path';
 import { checkKeyShape, checkReadwiseShape, FREE_PARSES, MAX_ACCOUNTS, type Account, type Accounts, type Paid } from './accounts.ts';
 import { DONATION_CENTS, MAX_CENTS, MIN_CENTS, STRIPE_FEE, type Billing } from './billing.ts';
 import type { Usage } from './parser.ts';
-import { describeError, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
+import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
 import {
   appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
   withLock, writeBoard, writeDraft, writeMeta, writeUnits,
@@ -289,13 +289,19 @@ export function createApp(hosted?: Hosted): Express {
       }
       paid = got;
     }
+    // Tokens the model used are paid for whether or not the parse succeeded; a free parse is given back only when
+    // the model was never reached, so a failing parse can't be repeated for free at the site's expense.
     let usage: Usage | undefined;
+    const settle = async () => {
+      if (paid?.kind === 'balance' && usage) await hosted!.accounts.charge(account!.id, usage.usd * USAGE_MARKUP * 1e6);
+      if (paid?.kind === 'free' && !usage) await hosted!.accounts.refundParse(account!.id, 'free');
+    };
     try {
       const units = await parseInto(slug, blurt, paid?.apiKey, (u) => { usage = u; });
-      if (paid?.kind === 'balance' && usage) await hosted!.accounts.charge(account!.id, usage.usd * USAGE_MARKUP * 1e6);
+      await settle();
       return units;
     } catch (e) {
-      if (paid) await hosted!.accounts.refundParse(account!.id, paid.kind);
+      await settle();
       throw e;
     }
   }
@@ -358,6 +364,12 @@ export function createApp(hosted?: Hosted): Express {
   }
 
   const parseStatus = (e: unknown) => e instanceof HttpError ? e.status : e instanceof ParseFailure ? 422 : 502;
+  // Hosted, only messages written for the writer reach the browser; others can carry server paths.
+  const parseError = (e: unknown) => {
+    if (!hosted || e instanceof HttpError || isWriterFacing(e)) return describeError(e);
+    console.error(e);
+    return 'The parse failed. Your blurt is saved; try again.';
+  };
 
   app.post('/api/p/:slug/blurts', wrap(async (req, res) => {
     const slug = slugOf(req);
@@ -370,7 +382,7 @@ export function createApp(hosted?: Hosted): Express {
       const units = await runParse(slug, blurt, accountOf(res));
       res.json({ blurt, units });
     } catch (e) {
-      res.status(parseStatus(e)).json({ blurt, units: [], error: describeError(e), ...(e instanceof OutOfParses ? { buy: true } : {}) });
+      res.status(parseStatus(e)).json({ blurt, units: [], error: parseError(e), ...(e instanceof OutOfParses ? { buy: true } : {}) });
     }
   }));
 
@@ -380,7 +392,7 @@ export function createApp(hosted?: Hosted): Express {
     try {
       res.json({ blurt, units: await runParse(slug, blurt, accountOf(res)) });
     } catch (e) {
-      res.status(parseStatus(e)).json({ blurt, units: [], error: describeError(e), ...(e instanceof OutOfParses ? { buy: true } : {}) });
+      res.status(parseStatus(e)).json({ blurt, units: [], error: parseError(e), ...(e instanceof OutOfParses ? { buy: true } : {}) });
     }
   }));
 

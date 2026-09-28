@@ -16,6 +16,8 @@ async function hosting(): Promise<Hosted | undefined> {
     return undefined;
   }
   const { clerkClient, clerkMiddleware, getAuth } = await import('@clerk/express');
+  const publicUrl = process.env.PUBLIC_URL?.replace(/\/$/, '');
+  if (production && !publicUrl) console.warn('PUBLIC_URL is not set: sessions are accepted from any origin Clerk issued them to.');
   const { PgAccounts, MemoryAccounts } = await import('./accounts.ts');
   let accounts;
   if (process.env.DATABASE_URL) {
@@ -36,11 +38,14 @@ async function hosting(): Promise<Hosted | undefined> {
   } else console.warn('Stripe is not configured: writers bring their own key after the free parses.');
   return {
     billing,
-    session: clerkMiddleware({ publishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY }),
+    // Only sessions made for this site's own pages (PUBLIC_URL) are accepted.
+    session: clerkMiddleware({ publishableKey: process.env.VITE_CLERK_PUBLISHABLE_KEY, ...(publicUrl ? { authorizedParties: [publicUrl] } : {}) }),
     userId: (req) => getAuth(req).userId,
     email: async (id) => {
       const u = await clerkClient.users.getUser(id);
-      return u.primaryEmailAddress?.emailAddress ?? null;
+      // Only a verified address counts: it decides who is an owner (ADMIN_EMAILS).
+      const e = u.primaryEmailAddress;
+      return e?.verification?.status === 'verified' ? e.emailAddress : null;
     },
     accounts,
   };

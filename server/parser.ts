@@ -65,6 +65,9 @@ export function describeError(e: unknown): string {
   return (e as Error).message;
 }
 
+/** Errors whose message is written for the writer: the API's own, and the parser's. Anything else may carry server details. */
+export const isWriterFacing = (e: unknown) => e instanceof Anthropic.APIError || e instanceof ParseFailure;
+
 /**
  * Offline mode (PARSER=offline): splits by sentence so the UI can be exercised without API calls.
  * Every question becomes a question; the first statement becomes the claim. Not a real parser.
