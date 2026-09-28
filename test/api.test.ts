@@ -4,7 +4,7 @@ import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Express } from 'express';
 import type { Unit } from '../shared/types.ts';
-import { readEvents, tempDataDir } from './helpers.ts';
+import { CAD_TALK, readEvents, tempDataDir } from './helpers.ts';
 
 // Real server, real files, in a temporary folder. The offline parser splits by sentence, with no API calls.
 const DATA = tempDataDir();
@@ -15,7 +15,7 @@ delete process.env.READWISE_TOKEN;
 let app: Express;
 beforeAll(async () => { app = (await import('../server/app.ts')).createApp(); });
 
-const BLURT = 'Certification is the real moat. The GE9X ran 5,000 hours of testing. Why do airlines exist?';
+const BLURT = CAD_TALK;
 
 async function newProject(title = 'Gas turbines') {
   const res = await request(app).post('/api/projects').send({ title });
@@ -56,7 +56,8 @@ describe('talk: blurt and parse', () => {
   it('cuts units verbatim from the blurt, at the offsets recorded', async () => {
     const slug = await newProject();
     const { units } = await blurt(slug);
-    expect(units.map((u) => u.type)).toEqual(['claim', 'evidence', 'question']);
+    expect(units.length).toBeGreaterThan(30);
+    expect(units.filter((u) => u.type === 'question').map((u) => u.text)).toContain('So how do we think about this problem?');
     for (const u of units) {
       expect(u.start).toBeGreaterThanOrEqual(0);
       expect(BLURT.slice(u.start, u.end)).toBe(u.text);
@@ -170,11 +171,12 @@ describe('export', () => {
   it('produces clean markdown with evidence as a footnote, and logs the export', async () => {
     const slug = await newProject('Export Me');
     const { units } = await blurt(slug);
-    const [claim, evidence] = units;
-    await request(app).put(`/api/p/${slug}/draft`).send({ text: `<!--s:thesis-->\nThe moat.<!--u:${claim.id}--> Hours.<!--u:${evidence.id}-->` });
+    const claim = units.find((u) => u.type === 'claim')!;
+    const evidence = units.find((u) => u.type === 'evidence' && u.text.includes('\n'))!; // spans lines: footnotes flatten it
+    await request(app).put(`/api/p/${slug}/draft`).send({ text: `<!--s:thesis-->\nCAD follows code.<!--u:${claim.id}--> Loops win.<!--u:${evidence.id}-->` });
     const res = await request(app).get(`/api/p/${slug}/export.md`);
     expect(res.headers['content-disposition']).toContain('export-me.md');
-    expect(res.text).toBe('# Export Me\n\nThe moat. Hours.[^1]\n\n[^1]: The GE9X ran 5,000 hours of testing.\n');
+    expect(res.text).toBe(`# Export Me\n\nCAD follows code. Loops win.[^1]\n\n[^1]: ${evidence.text.trim().replace(/\s+/g, ' ')}\n`);
     expect(readEvents(DATA, slug).at(-1)).toMatchObject({ type: 'export', author: 'human' });
   });
 });

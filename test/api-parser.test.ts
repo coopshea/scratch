@@ -2,16 +2,19 @@ import request from 'supertest';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Express } from 'express';
 import type { Unit } from '../shared/types.ts';
-import { tempDataDir } from './helpers.ts';
+import { CAD_TALK, tempDataDir } from './helpers.ts';
 
 // A stand-in parser that misbehaves on purpose, to prove the server checks what the model returns.
 vi.mock('../server/parser.ts', async (orig) => ({
   ...(await orig<typeof import('../server/parser.ts')>()),
   parseBlurt: vi.fn(async () => [
-    { key: 'c1', type: 'claim', text: 'Certification is the real moat.', label: 'certification as moat', home: '' },
-    { key: 'u1', type: 'evidence', text: 'The GE9X took 5,000 hours.', label: 'ge9x testing hours', home: 'c1' },
-    { key: 'u2', type: 'story', text: 'Why do airlines exist?', label: 'a label that is far too long to ever be allowed here', home: 'nope' },
-    { key: 'u3', type: 'claim', text: 'Certification is the real moat.', label: 'Certification As Moat', home: 'c1' },
+    { key: 'c1', type: 'claim', text: 'CAD AI is following the path of coding.', label: 'cad ai follows coding', home: '' },
+    // Reworded: the blurt says "In the last couple weeks, models that can natively do computer use have gotten much better."
+    { key: 'u1', type: 'evidence', text: 'Computer-use models got much better in recent weeks.', label: 'computer use improving', home: 'c1' },
+    { key: 'u2', type: 'story', text: 'Oddly enough, a lot of the reaction I’ve found sounds very familiar', label: 'a label that is far too long to ever be allowed here', home: 'nope' },
+    { key: 'u3', type: 'claim', text: 'Physical engineering is beginning to see similar loops be spun up.', label: 'CAD AI Follows Coding', home: 'c1' },
+    // Whitespace drift: the blurt has two spaces after "etc?"; the model returned one
+    { key: 'u4', type: 'objection', text: "how much does that matter now, in a month, in a year, etc? There used to be draftsmen.", label: 'bottleneck timing question', home: 'c1' },
   ]),
 }));
 
@@ -20,7 +23,7 @@ process.env.SCRATCH_DATA = tempDataDir();
 let app: Express;
 beforeAll(async () => { app = (await import('../server/app.ts')).createApp(); });
 
-const BLURT = 'Certification is the real moat. The GE9X ran 5,000 hours of testing. Why do airlines exist?';
+const BLURT = CAD_TALK;
 
 describe('the server checks the parser’s output', () => {
   let slug: string;
@@ -35,6 +38,13 @@ describe('the server checks the parser’s output', () => {
     expect(reworded.flags?.notVerbatim).toBe(true);
     expect([reworded.start, reworded.end]).toEqual([-1, -1]);
     expect(units[0].flags?.notVerbatim).toBeUndefined();
+  });
+
+  it('keeps the blurt’s own characters when the model drifts on whitespace', () => {
+    const drifted = units[4];
+    expect(drifted.flags?.notVerbatim).toBeUndefined();
+    expect(drifted.text).toBe('how much does that matter now, in a month, in a year, etc?  There used to be draftsmen.');
+    expect(BLURT.slice(drifted.start, drifted.end)).toBe(drifted.text);
   });
 
   it('flags labels over the limit', () => {
@@ -52,8 +62,8 @@ describe('the server checks the parser’s output', () => {
   });
 
   it('reuses the first spelling of a label, within a parse and across parses (controlled vocabulary)', async () => {
-    expect(units[3].label).toBe('certification as moat'); // same batch: first spelling wins
+    expect(units[3].label).toBe('cad ai follows coding'); // same batch: first spelling wins
     const again: Unit[] = (await request(app).post(`/api/p/${slug}/blurts`).send({ text: BLURT })).body.units;
-    expect(again[3].label).toBe('certification as moat');
+    expect(again[3].label).toBe('cad ai follows coding');
   });
 });

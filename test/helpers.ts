@@ -3,6 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Unit } from '../shared/types.ts';
 
+/** A real blurt: dictated talk notes, typos and fragments included. The test input for anything parse-shaped. */
+export const CAD_TALK = fs.readFileSync(new URL('./fixtures/cad-talk.md', import.meta.url), 'utf8');
+
 /** A fresh folder for one test file's projects, so tests never touch real writing. */
 export function tempDataDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'scratch-test-'));
