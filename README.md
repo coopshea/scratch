@@ -13,7 +13,24 @@ Open http://localhost:5178. Add `?p=<slug>` to switch projects; the default is `
 
 `npm run dev:offline` runs on port 5179 with a sentence-splitting stand-in for the parser, for UI work without API calls.
 
-The parser needs `ANTHROPIC_API_KEY` in `.env` (gitignored).
+## Keys
+
+Keys live in `.env`, which is gitignored. Start from the template:
+
+```bash
+cp .env.example .env
+```
+
+- `ANTHROPIC_API_KEY` is required for the parser. Get one at https://console.anthropic.com/settings/keys.
+- `READWISE_TOKEN` is optional and is used for importing Readwise highlights. Get it at https://readwise.io/access_token while logged in to Readwise. One token covers both the Readwise highlights API (v2) and the Reader API (v3).
+
+Check that the Readwise token works and that search is reachable:
+
+```bash
+npm run check:readwise
+```
+
+Never paste a key into `.env.example`, an issue, or a commit. If a key leaks, revoke it and make a new one: Anthropic keys at the console link above, Readwise tokens at the access-token page.
 
 ## Stack, drop-in wherever possible
 

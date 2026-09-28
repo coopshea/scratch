@@ -143,7 +143,7 @@ export function Graph({ units, selectedId, onSelect }: Props) {
           ))}
         </svg>
         {live.map((u) => {
-          const cls = ['unit', u.type === 'claim' ? 'is-claim' : '', u.status === 'proposed' ? 'is-proposed' : '',
+          const cls = ['unit', u.type === 'claim' ? 'is-claim' : '',
             u.origin === 'model' ? 'is-model' : '', u.id === selectedId ? 'is-selected' : '', inFocus(u) ? '' : 'dim'].join(' ');
           return (
             <div key={u.id} className={cls} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}

@@ -380,7 +380,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, onNext,
             const s = u.type === 'claim' ? support(u, live) : null;
             const at = placedAt.get(u.id);
             const offType = at !== undefined && !lanes[at.lane].accepts.includes(u.type);
-            const cls = ['unit', u.type === 'claim' ? 'is-claim' : '', placedAt.has(r.id) ? 'is-placed' : '', offType ? 'off-type' : '', u.status === 'proposed' ? 'is-proposed' : '',
+            const cls = ['unit', u.type === 'claim' ? 'is-claim' : '', placedAt.has(r.id) ? 'is-placed' : '', offType ? 'off-type' : '',
               u.id === selectedId ? 'is-selected' : '', dim ? 'dim' : ''].join(' ');
             return (
               <div key={u.id} className={cls} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}

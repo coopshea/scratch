@@ -12,6 +12,7 @@ export function replay(events: LogEvent[], count: number): { blurts: Blurt[]; un
   for (const e of events.slice(0, count)) {
     if (e.type === 'blurt.create') blurts.push({ id: e.data.id, text: e.data.text, createdAt: e.t });
     else if (e.type === 'parse') for (const u of e.data.units as Unit[]) units.set(u.id, { ...u });
+    else if (e.type === 'source.adopt') units.set(e.data.unit.id, { ...e.data.unit });
     else if (e.type === 'board.update') board = e.data;
     else if (e.type === 'draft.snapshot') draft = e.data.text;
     else if (e.type === 'unit.update') {

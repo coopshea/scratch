@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { createServer as createViteServer } from 'vite';
 import { describeError, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
@@ -11,7 +12,8 @@ import {
 import { outlineToStructure, slugify, structureMap, STRUCTURES, type Board, type Lane } from '../shared/structures.ts';
 import { UNIT_TYPES as TYPES } from '../shared/types.ts';
 import { toMarkdown } from '../shared/export.ts';
-import { labelProblem, UNIT_TYPES, type Blurt, type Unit } from '../shared/types.ts';
+import * as readwise from './readwise.ts';
+import { LABEL_MAX_CHARS, LABEL_MAX_WORDS, labelProblem, UNIT_TYPES, type Blurt, type Unit } from '../shared/types.ts';
 
 const PORT = Number(process.env.PORT ?? 5178);
 const app = express();
@@ -184,7 +186,7 @@ async function runParse(slug: string, blurt: Blurt) {
         start: loc ? loc[0] : -1,
         end: loc ? loc[1] : -1,
         home,
-        status: 'proposed',
+        status: 'accepted',
         origin: 'human',
         labeledBy: 'model',
         verified: false,
@@ -259,6 +261,61 @@ app.patch('/api/p/:slug/units/:id', wrap(async (req, res) => {
   res.json(unit);
 }));
 
+/** A label cut from the passage itself, never written: its first words, within the label limits. */
+function cutLabel(quote: string): string {
+  let label = '';
+  for (const w of quote.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`#>]/g, '').split(/\s+/).filter(Boolean)) {
+    const next = label ? `${label} ${w}` : w;
+    if (next.split(' ').length > LABEL_MAX_WORDS || next.length > LABEL_MAX_CHARS) break;
+    label = next;
+  }
+  return label.replace(/[,;:.\u2014-]+$/, '') || quote.slice(0, LABEL_MAX_CHARS).trim();
+}
+
+/** The writer's note on a passage, as note paragraphs. Their words, unparsed. */
+const noteBlocks = (note: string) => note.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
+  .map((text) => ({ type: 'paragraph', content: [{ type: 'text', text, styles: {} }] }));
+
+app.get('/api/readwise/status', wrap(async (_req, res) => res.json(await readwise.check())));
+
+/** Passages from the writer's own reading that relate to a query. Ones already in the document are left out. */
+app.post('/api/p/:slug/readwise/search', wrap(async (req, res) => {
+  const slug = slugOf(req);
+  if (!readwise.enabled()) return res.json({ enabled: false, passages: [] });
+  const query = String(req.body?.query ?? '').trim().slice(0, 1000);
+  if (!query) throw new HttpError(400, 'Query is empty');
+  const have = new Set(readUnits(slug).flatMap((u) => (u.source ? [u.source.id] : [])));
+  const passages = (await readwise.search(query, 12)).filter((p) => !have.has(p.id));
+  res.json({ enabled: true, passages });
+}));
+
+/** Bring one passage into the document as evidence. The words are fetched from Readwise here, not taken from the client. */
+app.post('/api/p/:slug/readwise/adopt', wrap(async (req, res) => {
+  const slug = slugOf(req);
+  if (!readwise.enabled()) throw new HttpError(400, 'READWISE_TOKEN is not set in .env');
+  const id = String(req.body?.id ?? '');
+  const existing = readUnits(slug).find((u) => u.source?.id === id);
+  if (existing) return res.json(existing);
+  const p = await readwise.getPassage(id);
+  const unit = await withLock(slug, () => {
+    const units = readUnits(slug);
+    const home = req.body?.home ? String(req.body.home) : null;
+    if (home && !units.some((u) => u.id === home && u.type === 'claim')) throw new HttpError(400, 'Home must be a claim');
+    const u: Unit = {
+      id: newId(), type: 'evidence', label: cutLabel(p.quote), text: p.quote,
+      blurtId: null, start: -1, end: -1, home, status: 'accepted',
+      origin: 'source', labeledBy: 'system', verified: false,
+      note: p.note ? noteBlocks(p.note) : null,
+      source: { kind: 'readwise', id: p.id, title: p.title, author: p.author, url: p.url },
+      createdAt: new Date().toISOString(),
+    };
+    writeUnits(slug, [...units, u]);
+    appendEvent(slug, 'human', 'source.adopt', { unit: u });
+    return u;
+  });
+  res.json(unit);
+}));
+
 app.post('/api/p/:slug/assets', express.raw({ type: () => true, limit: '25mb' }), wrap((req, res) => {
   const slug = slugOf(req);
   const name = String(req.header('x-filename') ?? 'upload.bin');
@@ -275,8 +332,10 @@ app.use('/api', (err: unknown, _req: Request, res: Response, _next: NextFunction
   res.status(status).json({ error: (err as Error).message ?? 'Server error' });
 });
 
-const vite = await createViteServer({ server: { middlewareMode: true, hmr: { port: PORT + 20000 } }, appType: 'spa' });
+// Hot reload shares the app's own server, so any PORT works.
+const server = http.createServer(app);
+const vite = await createViteServer({ server: { middlewareMode: true, hmr: { server } }, appType: 'spa' });
 app.use(vite.middlewares);
 
 projectDir('scratch');
-app.listen(PORT, () => console.log(`scratch on http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`scratch on http://localhost:${PORT}`));
