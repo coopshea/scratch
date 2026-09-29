@@ -166,11 +166,48 @@ const anchorPlugin = ViewPlugin.fromClass(class {
   provide: (p) => EditorView.atomicRanges.of((view) => view.plugin(p)?.decorations ?? Decoration.none),
 });
 
+/* ---------- the blank-draft hint: a placeholder on the first writing line, gone with the first word ---------- */
+
+const setHint = StateEffect.define<string>();
+
+class HintWidget extends WidgetType {
+  constructor(readonly text: string) { super(); }
+  eq(o: HintWidget) { return o.text === this.text; }
+  toDOM() {
+    const s = document.createElement('span');
+    s.className = 'cm-draft-hint';
+    s.setAttribute('aria-hidden', 'true');
+    s.textContent = this.text;
+    return s;
+  }
+  ignoreEvent() { return true; }
+}
+
+/** Only while nothing but dividers is written: on the empty line under the first divider, where the cursor starts. */
+function buildHint(state: EditorState, text: string): DecorationSet {
+  if (!text || state.doc.toString().replace(MARKER, '').trim()) return Decoration.none;
+  const first = findMarkers(state)[0];
+  if (!first) return Decoration.none;
+  const n = state.doc.lineAt(first.to).number;
+  if (n >= state.doc.lines || SECTION.test(state.doc.line(n + 1).text)) return Decoration.none;
+  return Decoration.set([Decoration.widget({ widget: new HintWidget(text), side: 1 }).range(state.doc.line(n + 1).from)]);
+}
+
+const hintField = StateField.define<{ text: string; deco: DecorationSet }>({
+  create: () => ({ text: '', deco: Decoration.none }),
+  update(v, tr) {
+    let text = v.text;
+    for (const e of tr.effects) if (e.is(setHint)) text = e.value;
+    return text === v.text && !tr.docChanged ? v : { text, deco: buildHint(tr.state, text) };
+  },
+  provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
+});
+
 const ink = HighlightStyle.define([
   { tag: tags.heading, fontWeight: '600' },
   { tag: tags.strong, fontWeight: '600' },
   { tag: tags.emphasis, fontStyle: 'italic' },
-  { tag: [tags.processingInstruction, tags.meta, tags.url], color: 'var(--pencil)' },
+  { tag: [tags.processingInstruction, tags.meta, tags.url], color: 'var(--ink-3)' },
 ]);
 
 /* ---------- local keyword match: flags ideas mentioned by name but not yet placed ---------- */
@@ -330,7 +367,7 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
     const initial = ensureSections(normalizeMarkers(draft), lanes.map((l) => l.id));
     const extensions: Extension[] = [
       history(), drawSelection(), keymap.of([...defaultKeymap, ...historyKeymap]), keepMarkersAlone, keepCursorOffMarkers,
-      markdown(), syntaxHighlighting(ink), sections, anchorPlugin, EditorView.lineWrapping,
+      markdown(), syntaxHighlighting(ink), sections, anchorPlugin, hintField, EditorView.lineWrapping,
       EditorView.contentAttributes.of({ spellcheck: 'true', autocorrect: 'on', autocapitalize: 'sentences' }),
       EditorView.updateListener.of((u) => {
         if (u.docChanged || u.geometryChanged || u.viewportChanged) measure();
@@ -510,7 +547,7 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
         ref={(el) => { if (el) sectionEls.current.set(laneId, el); else sectionEls.current.delete(laneId); }}
         onDragOver={dragOver(laneId)} onDrop={drop(laneId)}>
         {dropAt?.lane === laneId && <div className="cue-drop-line" style={{ top: dropAt.y }} />}
-        <h3 className={lane?.required && !items.length ? 'gap' : ''}>{lane?.name ?? laneId}</h3>
+        <h3 className={lane?.required && !items.length && anyPlaced ? 'gap' : ''}>{lane?.name ?? laneId}</h3>
         {items.map(cue)}
         {active.lane === laneId && suggestions.map((u) => (
           <div key={`s-${u.id}`} className="cue suggestion">
@@ -525,9 +562,14 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
     ];
   };
 
+  const anyPlaced = Object.values(assign).some((ids) => ids.some((id) => byId.has(id)));
+  // A draft with nothing written yet gets one line of guidance where the cursor starts; it goes with the first word.
+  const hint = anyPlaced ? 'Open an idea on the left to see your words, then start writing here.' : 'Write here. Ideas you put in order in Shape appear on the left.';
+  useEffect(() => { view.current?.dispatch({ effects: setHint.of(hint) }); }, [hint]);
+
   return (
     <div className="draft-rows" ref={scrollRef} onDragOver={edgeScroll}>
-      {hover && <style>{`.cm-anchor[data-id="${hover}"] { background: var(--highlight); }`}</style>}
+      {hover && <style>{`.cm-anchor[data-id="${hover}"] { background: var(--marker); }`}</style>}
       <div className="draft-grid">
         <div className="cue-col" ref={colRef} style={{ height: colH || undefined }}>
           {rows.map((r, i) => section(r.lane, r.y, (i + 1 < rows.length ? rows[i + 1].y : colH || r.y + 200) - r.y))}

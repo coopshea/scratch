@@ -32,9 +32,11 @@ type Props = {
   readOnly?: boolean;
   structures: Record<string, StructureDef>;
   onCustom: (list: StructureDef[]) => void;
+  /** The button on to the next stage, at the right of the outline bar. */
+  next?: React.ReactNode;
 };
 
-export function Structure({ units, board, onBoard, onSelect, selectedId, readOnly = false, structures, onCustom }: Props) {
+export function Structure({ units, board, onBoard, onSelect, selectedId, readOnly = false, structures, onCustom, next }: Props) {
   const live = useMemo(() => units.filter((u) => u.status !== 'cut'), [units]);
   const byId = useMemo(() => new Map(live.map((u) => [u.id, u])), [live]);
   const sid = board.structure;
@@ -69,7 +71,8 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
    * starts a new line, so a row grows downward cluster by cluster. A piece placed in the same row as its root
    * rejoins that root's line; placed anywhere else, it stands on its own line with a thread back to its root.
    */
-  const GAP_X = 18, GAP_Y = 10, LINE_GAP = 22, PAD_Y = 16, LEFT = LABEL_W + 30;
+  // The pool starts below its title, POOL_TOP from the top.
+  const GAP_X = 18, GAP_Y = 10, LINE_GAP = 22, PAD_Y = 16, POOL_TOP = 46, LEFT = LABEL_W + 30;
   // Layout needs real label sizes: recompute once the nodes for the current content exist in the page.
   const [measured, setMeasured] = useState(0);
   useLayoutEffect(() => { setMeasured((n) => n + 1); }, [live]);
@@ -114,13 +117,13 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
     const loose = live.filter((u) => !placedAt.has(u.id) && !(u.home && byId.has(u.home)));
     const cards = loose.map((r) => ({ id: r.id, ...layoutCard(r.id, live.filter((k) => k.home === r.id && !placedAt.has(k.id)).map((k) => k.id), dims, colW) }));
     const m = masonry(cards, poolCols, colW, COL_GAP);
-    const poolCards = cards.map((c) => ({ id: c.id, x: poolLeft + m.at.get(c.id)!.x, y: PAD_Y + m.at.get(c.id)!.y, w: colW, h: c.h }));
+    const poolCards = cards.map((c) => ({ id: c.id, x: poolLeft + m.at.get(c.id)!.x, y: POOL_TOP + m.at.get(c.id)!.y, w: colW, h: c.h }));
     for (const c of cards) {
       const at = m.at.get(c.id)!;
-      for (const [id, p] of c.pos) if (!slots.has(id)) slots.set(id, { x: poolLeft + at.x + p.x, y: PAD_Y + at.y + p.y });
+      for (const [id, p] of c.pos) if (!slots.has(id)) slots.set(id, { x: poolLeft + at.x + p.x, y: POOL_TOP + at.y + p.y });
     }
     const rowsH = heights.reduce((a, b) => a + b, 0);
-    return { bandTop, bandHt: heights, totalH: Math.max(rowsH, m.height + 2 * PAD_Y), slots, poolCards };
+    return { bandTop, bandHt: heights, totalH: Math.max(rowsH, m.height + POOL_TOP + PAD_Y), slots, poolCards };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lanes, live, placedAt, size.H, size.W, measured]);
 
@@ -483,6 +486,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
   return (
     <div className="structure">
       <nav className="structure-bar">
+        <div className="seg">
         {Object.values(structures).map((s) => (
           <span key={s.id} className="outline-tab">
             <button className={`stage ${s.id === sid ? 'on' : ''}`} onClick={() => switchTo(s.id)}
@@ -493,8 +497,10 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
             )}
           </span>
         ))}
-        {!readOnly && <button className="stage add" onClick={() => setDialog({ name: '', outline: '' })} aria-label="Make your own outline">+</button>}
+        {!readOnly && <button className="stage add" onClick={() => setDialog({ name: '', outline: '' })} aria-label="Make your own outline" title="Make your own outline">+</button>}
+        </div>
         <span className="spacer" />
+        {next}
       </nav>
       {dialog && (
         <div className="outline-dialog" onKeyDown={(e) => { if (e.key === 'Escape') setDialog(null); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveOutline(); }}>
@@ -519,7 +525,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
               <div key={l.id} className={`level ${hb}`} style={{ top: bandTop[i], height: bandHt[i], right: 'auto', width: poolX }}>
                 {/* The level's own controls live in this zone around its name, and only show while the pointer is in it. */}
                 <div className="level-head">
-                <span className={`level-name ${l.required && !filled ? 'gap' : ''}`} style={{ top: 34 }} onPointerDown={(e) => e.stopPropagation()}>
+                <span className={`level-name ${l.required && !filled && placedAt.size ? 'gap' : ''}`} style={{ top: 34 }} onPointerDown={(e) => e.stopPropagation()}>
                   {renaming === l.id
                     ? <input className="level-rename" defaultValue={l.name} autoFocus spellCheck onFocus={(e) => e.currentTarget.select()}
                         onBlur={(e) => renameLevel(l.id, e.target.value)}
@@ -543,6 +549,8 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
                     </div>
                   : <button className={`level-insert ${i === 0 ? 'first' : ''}`} aria-label={`Insert a level above ${l.name}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => setInsertAt(i)} />)}
                 </div>
+                {hb && <span className="drop-plus" aria-hidden>+</span>}
+                {i === 0 && !placedAt.size && !readOnly && !hb && <p className="hint level-hint">Drag an idea here to start.</p>}
               </div>
             );
           })}
@@ -553,6 +561,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
                 : <button className="link" onClick={() => setAdding(true)} aria-label="Add a level">+</button>}
             </div>
           )}
+          <span className="pool-title" style={{ left: poolX + 24 }}>Ideas</span>
           {hoverBand !== undefined && dragOn && <div className="pool-edge" style={{ left: poolX, height: totalH }} />}
           {reorder && <div className="level-drop-line" style={{ top: reorder.to < lanes.length ? bandTop[reorder.to] : bandTop[lanes.length - 1] + bandHt[lanes.length - 1], width: poolX }} />}
           {poolCards.map((c) => (
@@ -572,7 +581,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
             const cls = ['unit', isRoot(u) ? 'is-claim' : '', placedAt.has(r.id) ? 'is-placed' : '', offType ? 'off-type' : '',
               u.id === selectedId ? 'is-selected' : '', dim ? 'dim' : ''].join(' ');
             return (
-              <div key={u.id} className={cls} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}
+              <div key={u.id} className={cls} data-type={u.type} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}
                 title={offType ? `${lanes[at!.lane].name} usually holds: ${lanes[at!.lane].accepts.join(', ')}` : undefined}
                 ref={(el) => { if (el) nodeEls.current.set(u.id, el); else nodeEls.current.delete(u.id); }}
                 onPointerDown={(e) => press(e, u.id)}>

@@ -4,7 +4,7 @@ import helmet from 'helmet';
 import fs from 'node:fs';
 import path from 'node:path';
 import { checkKeyShape, checkReadwiseShape, FREE_PARSES, MAX_ACCOUNTS, type Account, type Accounts, type Paid } from './accounts.ts';
-import { DONATION_CENTS, MAX_CENTS, MIN_CENTS, STRIPE_FEE, type Billing } from './billing.ts';
+import { CREDIT_MICROS, DONATION_CENTS, MAX_CENTS, MIN_CENTS, STRIPE_FEE, type Back, type Billing } from './billing.ts';
 import type { Usage } from './parser.ts';
 import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
 import {
@@ -107,7 +107,7 @@ export function createApp(hosted?: Hosted): Express {
     res.json(account ? {
       hosted: true, account, unlimited: isAdmin(account),
       billing: !!hosted?.billing,
-      pricing: { freeParses: FREE_PARSES, markup: USAGE_MARKUP, minCents: MIN_CENTS, maxCents: MAX_CENTS, fee: STRIPE_FEE, donationCents: DONATION_CENTS },
+      pricing: { freeParses: FREE_PARSES, markup: USAGE_MARKUP, creditMicros: CREDIT_MICROS * USAGE_MARKUP, minCents: MIN_CENTS, maxCents: MAX_CENTS, fee: STRIPE_FEE, donationCents: DONATION_CENTS },
     } : { hosted: false });
   }));
 
@@ -123,7 +123,12 @@ export function createApp(hosted?: Hosted): Express {
     }
     // Already subscribed: change or cancel on Stripe's billing page, not a second subscription.
     if (what === 'subscription' && account.subscribed) return res.json({ url: await hosted.billing.portalUrl(account, origin(req)) });
-    res.json({ url: await hosted.billing.checkoutUrl(account, origin(req), what, cents) });
+    // From the out-of-credits notice: come back to the document and cut the spill. Only ids of the shapes we issue,
+    // so the return address can't be pointed anywhere else.
+    const b = req.body?.back;
+    const back: Back | undefined = what === 'topup' && typeof b?.slug === 'string' && typeof b?.blurt === 'string'
+      && /^[a-z0-9][a-z0-9-]{0,63}$/.test(b.slug) && /^[A-Za-z0-9_-]{1,64}$/.test(b.blurt) ? { slug: b.slug, blurt: b.blurt } : undefined;
+    res.json({ url: await hosted.billing.checkoutUrl(account, origin(req), what, cents, back) });
   }));
 
   app.post('/api/billing/portal', wrap(async (req, res) => {

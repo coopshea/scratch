@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { useCreateBlockNote } from '@blocknote/react';
+import { filterSuggestionItems } from '@blocknote/core';
+import { getDefaultReactSlashMenuItems, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { en } from '@blocknote/core/locales';
 import type { Blurt, Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { api } from './api.ts';
+import { Icon } from './icons.tsx';
 import { LabelInput } from './LabelInput.tsx';
 import { HomeSelect, TypeSelect } from './TypeSelect.tsx';
 
@@ -34,13 +36,33 @@ function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave:
     <BlockNoteView
       editor={editor}
       editable={!readOnly}
+      slashMenu={false}
       theme="light"
       onChange={() => {
         window.clearTimeout(timer.current);
         timer.current = window.setTimeout(() => onSave(editor.document as unknown[]), 700);
       }}
-    />
+    >
+      <SuggestionMenuController triggerCharacter="/"
+        getItems={async (query) => filterSuggestionItems([...getDefaultReactSlashMenuItems(editor), gapItem(editor)], query)} />
+    </BlockNoteView>
   );
+}
+
+/** Scratch's own slash item: a gap, `[ ]`, for something to find out later, with the cursor inside it. */
+function gapItem(editor: ReturnType<typeof useCreateBlockNote>) {
+  return {
+    title: 'Gap',
+    subtext: 'Something to find out later',
+    aliases: ['gap', 'todo', 'later', 'bracket'],
+    group: 'Scratch',
+    icon: <span className="slash-glyph">[ ]</span>,
+    onItemClick: () => {
+      editor.insertInlineContent(['[]']);
+      const tt = editor._tiptapEditor;
+      tt.commands.setTextSelection(tt.state.selection.from - 1);
+    },
+  };
 }
 
 type Props = {
@@ -68,7 +90,7 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
         <TypeSelect value={unit.type} onChange={(type) => onPatch(unit.id, { type })} />
         <span className="spacer" />
         {!readOnly && <button className="link muted" onClick={() => onPatch(unit.id, { status: 'cut' })}>cut</button>}
-        <button className="link muted" onClick={onClose} aria-label="Close">✕</button>
+        <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" /></button>
       </header>
 
       <LabelInput value={unit.label} onSave={(label) => onPatch(unit.id, { label })} />

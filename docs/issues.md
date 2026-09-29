@@ -4,22 +4,21 @@ Open work, newest first. Delete an item when it ships; git history keeps the rec
 
 ## Open
 
-### The interface doesn't say what to do
-**Added:** 2026-09-28 · **Priority:** part of the design process, before more people use the hosted site
+### Words the interface still needs to settle
+**Added:** 2026-09-28
 
-A new writer opens each stage to a blank space with no idea what goes there or what happens next. The problem is guidance, not the stage names. Fix it without tours or pop-ups: each empty space says, in the app's quiet italic, what goes there, and the words disappear once it has content. A draft of those words:
+The guidance itself shipped with the design system (one blue hint per empty space, gone once it fills). Still open:
 
-- **Spill:** the box: "Write everything you think about this, as fast as it comes. Typos and half-thoughts are fine." The button: "cut into ideas ⌘↵". The empty graph: "Your ideas land here as cards, grouped under the point they support." A blurt that yields nothing: "Nothing to cut up here", with no second parse button.
-- **Shape:** "Drag each group onto a level of your outline. Anything left on the right stays out."
-- **Draft:** "Write each section here. Drag an idea from the left into your text, or double-click it, to use it."
-- **Stage names** on hover: get it all out · give it an order · write it.
+- **Headline for the welcome page:** "Detangle Your Brain" is live. Others considered: "From Tangle to Thread", "Untangle What You Think", "Pull the Thread", "Mess In, Draft Out", "A third hand for your brain".
+- **The lead under it:** "Scratch turns loose thoughts into pieces you can move around, so going from idea to draft is quick." Cooper: better than earlier tries, not great.
+- **Parse button:** "cut into ideas" for now. Money uses credits, never "cut" or "parse".
+- **Credit size:** one credit is 8¢ of model time (about one run of Spill; long spills use 2 or 3), with Stripe's fee priced in, so $5 buys credits, not "$4.55". Explained only on the account page.
+- **Kept for later:** Dump → Sort → Write; Gather → Arrange → Write; Brainstorm → Outline → Write; "blurt" and "word vomit".
 
-Related: internal words leak into the interface (blurt, parse, unit, cluster). Every word a writer sees should be plain; the code keeps its internal names (talk/structure/draft, blurts, units) so nothing breaks.
+### Draft: scaffolding from your own words
+**Added:** 2026-09-28 · **Priority:** later
 
-- **Decided:** the stages read **Spill → Shape → Draft**.
-- **Still open:** the parse button (candidates: "cut up", "sort into ideas"), the thing a writer spills (a dump, notes), units (ideas, which Draft already says), clusters (threads, piles), and a blurt that yielded nothing ("nothing to cut up here" instead of a second parse button).
-- **Considered and kept for later:** Dump → Sort → Write; Gather → Arrange → Write; Brainstorm → Outline → Write; S-words for the third stage (Stitch, Script, Set down); "blurt" and "word vomit".
-- Apply the chosen words everywhere at once: stage bar, buttons, errors, the account page, README.
+Pre-fill each empty section with the spill fragments behind its ideas, as grey blocks the writer writes over and that never export. Cooper worries it's too much on screen. Worth another look with a small local model ("Jev") that can tell, as you type, which fragments and ideas you've covered, so they cross off without a paid model call. The existing keyword match already crosses off ideas mentioned by name.
 
 ### Red pen: one review pass over the draft
 **Added:** 2026-09-28 · **Priority:** later, after the core loop feels right

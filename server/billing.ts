@@ -13,9 +13,12 @@ export type Purchase = 'topup' | 'subscription' | 'donation';
 /** A ream of paper. */
 export const DONATION_CENTS = 700;
 
+/** Where to come back to after paying from the out-of-credits notice: the document, and the spill to cut. */
+export type Back = { slug: string; blurt: string };
+
 export interface Billing {
-  /** A Stripe Checkout page for `cents`, once or monthly. */
-  checkoutUrl(account: Account, origin: string, what: Purchase, cents: number): Promise<string>;
+  /** A Stripe Checkout page for `cents`, once or monthly. With `back`, success returns to that document and cuts that spill. */
+  checkoutUrl(account: Account, origin: string, what: Purchase, cents: number, back?: Back): Promise<string>;
   /** Stripe's own page for changing card or cancelling. */
   portalUrl(account: Account, origin: string): Promise<string>;
   /** Verifies Stripe's signature, then applies the event. */
@@ -28,6 +31,8 @@ export const MAX_CENTS = 10_000;
 /** Stripe's standard card fee, taken out of what a payment adds to the balance. */
 export const STRIPE_FEE = { percent: 2.9, cents: 30 };
 /** What a payment adds to the balance, in micro-dollars. */
+/** One credit: about one run of Spill on a typical spill, at Anthropic's price. What writers see; the balance stays in micro-dollars. */
+export const CREDIT_MICROS = 80_000;
 export const netMicros = (cents: number) => Math.max(0, Math.round((cents * (1 - STRIPE_FEE.percent / 100) - STRIPE_FEE.cents) * 10_000));
 
 // Subscription states that keep it on. past_due keeps it while Stripe retries the card.
@@ -39,7 +44,7 @@ export class StripeBilling implements Billing {
     this.stripe = new Stripe(secretKey);
   }
 
-  async checkoutUrl(account: Account, origin: string, what: Purchase, cents: number) {
+  async checkoutUrl(account: Account, origin: string, what: Purchase, cents: number, back?: Back) {
     const customer = await this.accounts.customerOf(account.id);
     // Read back from the signed webhook: whose balance, and whether this payment adds to it at all.
     const tag = { account: account.id, kind: what };
@@ -59,8 +64,8 @@ export class StripeBilling implements Billing {
       ...(what === 'subscription' ? { subscription_data: { metadata: tag } } : {}),
       ...(customer ? { customer } : { customer_email: account.email ?? undefined }),
       ...(!customer && what !== 'subscription' ? { customer_creation: 'always' as const } : {}),
-      success_url: `${origin}/?account&paid=${what}`,
-      cancel_url: `${origin}/?account`,
+      success_url: back ? `${origin}/?p=${back.slug}&paid=${what}&reparse=${back.blurt}` : `${origin}/?account&paid=${what}`,
+      cancel_url: back ? `${origin}/?p=${back.slug}` : `${origin}/?account`,
     });
     if (!session.url) throw new HttpError(502, 'Stripe did not return a checkout page');
     return session.url;

@@ -34,7 +34,7 @@ beforeAll(async () => {
     email: async (id) => `${id}@example.com`,
     accounts,
     billing: {
-      checkoutUrl: async (a, _origin, what, cents) => `https://checkout.stripe.test/${what}/${cents}/${a.id}`,
+      checkoutUrl: async (a, _origin, what, cents, back) => `https://checkout.stripe.test/${what}/${cents}/${a.id}${back ? `?back=${back.slug}/${back.blurt}` : ''}`,
       portalUrl: async (a) => `https://billing.stripe.test/${a.id}`,
       webhook: (raw, sig) => stripe.webhook(raw, sig),
     },
@@ -172,6 +172,16 @@ describe('hosted: paying in through Stripe', () => {
     expect(ok.body.url).toBe('https://checkout.stripe.test/topup/500/erin');
     expect((await as('erin').post('/api/billing/checkout').send({ what: 'subscription', cents: 100 })).body.url).toBe('https://checkout.stripe.test/subscription/100/erin');
     expect((await as('erin').post('/api/billing/checkout').send({ what: 'topup', cents: 99 })).status).toBe(400);
+  });
+
+  it('comes back to the document after buying from the out-of-credits notice, and only to an address it made', async () => {
+    const buy = (back: unknown, what = 'topup') => as('erin').post('/api/billing/checkout').send({ what, cents: 500, back });
+    expect((await buy({ slug: 'gas-turbines', blurt: '2026-09-28T23-56-49-123Z_ab12' })).body.url)
+      .toBe('https://checkout.stripe.test/topup/500/erin?back=gas-turbines/2026-09-28T23-56-49-123Z_ab12');
+    for (const bad of [{ slug: '../evil', blurt: 'x' }, { slug: 'ok', blurt: 'a&b=c' }, { slug: 'https://evil.test', blurt: 'x' }, 'gas-turbines']) {
+      expect((await buy(bad)).body.url).toBe('https://checkout.stripe.test/topup/500/erin');
+    }
+    expect((await buy({ slug: 'gas-turbines', blurt: 'x' }, 'subscription')).body.url).toBe('https://checkout.stripe.test/subscription/500/erin');
   });
 
   it('ignores webhooks without a valid Stripe signature', async () => {

@@ -57,7 +57,7 @@ export const archetypes = {
 
 /** Hosted only: Stripe's own pages for paying in and for managing a subscription. */
 export const billing = {
-  checkout: (what: 'topup' | 'subscription' | 'donation', cents = 0) => goTo('/api/billing/checkout', { what, cents }),
+  checkout: (what: 'topup' | 'subscription' | 'donation', cents = 0, back?: { slug: string; blurt: string }) => goTo('/api/billing/checkout', { what, cents, back }),
   portal: () => goTo('/api/billing/portal'),
 };
 async function goTo(path: string, payload: object = {}) {
