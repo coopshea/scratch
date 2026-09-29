@@ -48,7 +48,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 ::selection { background: rgba(45, 92, 166, .18); }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* Writing surfaces are not controls: no ring around the page you are typing on. */
-.bn-editor:focus-visible, .cm-content:focus-visible, .blurt:focus-visible { outline: none; }
+.bn-editor:focus-visible, .blurt:focus-visible { outline: none; }
 .loading { padding: 40px; color: var(--ink-3); }
 .spacer { flex: 1; }
 .muted { color: var(--ink-3); }
@@ -268,7 +268,9 @@ select:focus { outline: none; text-decoration: underline; }
 /* The left padding holds BlockNote's + and drag handle (48px) inside the sheet. */
 .note .bn-container .bn-editor { cursor: text; margin-inline: -16px; padding: 8px 10px 8px 48px; }
 /* Hints take the size of the line they sit in (a heading's hint is heading-sized), only blue and italic. */
-.note .bn-block-content::after { font-style: italic !important; color: var(--pencil) !important; opacity: 1 !important; }
+:is(.note, .draft-blocks) .bn-block-content::after { font-style: italic !important; color: var(--pencil) !important; opacity: 1 !important; }
+/* A block just chosen from the / menu shows nothing; the writer types. Hints are for plain empty lines only. */
+:is(.note, .draft-blocks) .bn-block-content:not([data-content-type="paragraph"])::after { content: none !important; }
 .note .bn-container[data-color-scheme] {
   --bn-colors-editor-background: transparent !important;
   --bn-colors-editor-text: var(--ink) !important;
@@ -281,16 +283,16 @@ select:focus { outline: none; text-decoration: underline; }
 .note .bn-editor, .note .bn-editor .bn-default-styles, .note .bn-inline-content { font-family: var(--serif) !important; color: var(--ink); }
 .bn-suggestion-menu { font-family: var(--sans) !important; }
 /* Headings in a note stay near the note's own size: the sheet is narrow, and BlockNote's 3em heading is 45px here. */
-.note [data-content-type="heading"] { --level: 1.45em; }
-.note [data-content-type="heading"][data-level="2"] { --level: 1.25em; }
-.note [data-content-type="heading"][data-level="3"] { --level: 1.1em; }
-.note [data-content-type="heading"][data-level="4"], .note [data-content-type="heading"][data-level="5"], .note [data-content-type="heading"][data-level="6"] { --level: 1em; }
+:is(.note, .draft-blocks) [data-content-type="heading"] { --level: 1.45em; }
+:is(.note, .draft-blocks) [data-content-type="heading"][data-level="2"] { --level: 1.25em; }
+:is(.note, .draft-blocks) [data-content-type="heading"][data-level="3"] { --level: 1.1em; }
+:is(.note, .draft-blocks) [data-content-type="heading"][data-level="4"], :is(.note, .draft-blocks) [data-content-type="heading"][data-level="5"], :is(.note, .draft-blocks) [data-content-type="heading"][data-level="6"] { --level: 1em; }
 /* Code in a note: light like the page, in mono, with the ink colour (BlockNote's dark block hid black text). */
-.note .bn-block-content[data-content-type="codeBlock"] { background: var(--wash) !important; color: var(--ink) !important; border-radius: var(--radius-control); position: relative; }
+:is(.note, .draft-blocks) .bn-block-content[data-content-type="codeBlock"] { background: var(--wash) !important; color: var(--ink) !important; border-radius: var(--radius-control); position: relative; }
 /* Leaving a code block is Shift+Enter (or Enter three times at its end); say so while the cursor is in one. */
-.note .bn-editor:focus .bn-block-content[data-content-type="codeBlock"].code-here::before { content: 'Shift+Enter to leave the code block'; position: absolute; right: 10px; top: 6px; font: italic 400 12px/16px var(--sans); color: var(--pencil); pointer-events: none; }
-.note .bn-block-content[data-content-type="codeBlock"] pre, .note .bn-block-content[data-content-type="codeBlock"] code,
-.note .bn-block-content[data-content-type="codeBlock"] .bn-inline-content { font: 400 13px/20px var(--mono) !important; color: var(--ink) !important; background: transparent !important; }
+:is(.note, .draft-blocks) .bn-editor:focus .bn-block-content[data-content-type="codeBlock"].code-here::before { content: 'Shift+Enter to leave the code block'; position: absolute; right: 10px; top: 6px; font: italic 400 12px/16px var(--sans); color: var(--pencil); pointer-events: none; }
+:is(.note, .draft-blocks) .bn-block-content[data-content-type="codeBlock"] pre, :is(.note, .draft-blocks) .bn-block-content[data-content-type="codeBlock"] code,
+:is(.note, .draft-blocks) .bn-block-content[data-content-type="codeBlock"] .bn-inline-content { font: 400 13px/20px var(--mono) !important; color: var(--ink) !important; background: transparent !important; }
 
 /* ---------- history ---------- */
 .history { gap: 10px; }
@@ -394,15 +396,7 @@ select:focus { outline: none; text-decoration: underline; }
 .body.draft-stage.has-sheet { grid-template-columns: minmax(0, 1fr) var(--sheet-w, 400px); }
 .body.draft-stage:has(> .history) { grid-template-columns: minmax(260px, 340px) minmax(0, 1fr); }
 .draft-rows { overflow-y: auto; min-height: 0; min-width: 0; background: var(--page); position: relative; }
-.draft-grid { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); align-items: stretch; min-height: 100%; }
-.cue-col { position: relative; border-right: 1px solid var(--line); min-height: 100%; background: var(--desk); }
-.cue-block { position: absolute; left: 0; right: 0; padding: 14px 16px 16px 16px; border-top: 1px solid var(--line); transition: background .15s; display: flex; flex-direction: column; gap: 6px; }
-.cue-block.active { background: var(--pencil-soft); box-shadow: inset 3px 0 0 var(--pencil); }
-.cue-zone { position: absolute; left: 0; right: 0; transition: background .15s; }
-.cue-zone.drop { background: var(--go-soft); }
 .cue-drop-line { position: absolute; left: 16px; right: 16px; height: 0; border-top: 2px solid var(--go); pointer-events: none; }
-.cue-block h3 { margin: 0 0 2px; font: 600 14px/20px var(--sans); color: var(--ink); }
-.cue-block h3.gap { color: var(--objection); }
 /* An idea in the outline: a tile you can open (your words), drag into the text, or reorder. */
 .cue { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: var(--shadow-card); padding: 6px 10px 6px 6px; cursor: grab; user-select: none; }
 .cue:hover { border-color: var(--line-strong); }
@@ -421,22 +415,32 @@ select:focus { outline: none; text-decoration: underline; }
 .disclose { background: none; border: 0; padding: 0; width: 20px; height: 20px; border-radius: 4px; cursor: pointer; color: var(--ink-2); font-size: 11px; flex: none; }
 .disclose:hover { background: var(--wash); color: var(--ink); }
 .cue-text { margin: 6px 0 2px 28px; font: italic 400 15px/23px var(--serif); color: var(--ink); cursor: pointer; }
-.page { min-width: 0; position: relative; overflow-x: clip; }
-.cm-draft-hint { font: italic 400 16px/32px var(--sans); color: var(--pencil); pointer-events: none; }
-.page .cm-editor { height: auto; background: transparent; font-family: var(--serif); font-size: 19px; }
-.page .cm-editor.cm-focused { outline: none; }
-.page .cm-scroller { overflow: visible; font-family: var(--serif); line-height: 32px; padding: 0 0 80px; }
-.page .cm-content { max-width: 760px; padding: 0 40px; caret-color: var(--ink); color: var(--ink); }
-.page .cm-cursor { border-left: 1.5px solid var(--ink); }
-.page .cm-selectionBackground, .page .cm-focused .cm-selectionBackground { background: rgba(45, 92, 166, .16) !important; }
-.cm-section { pointer-events: none; }
-/* Rules run on past the text to the column's right edge, where the idea sheet opens. */
-.cm-section-rule { border-top: 1px dashed var(--line-strong); height: 14px; margin: 0 -100vw 0 -40px; }
-/* The first section has nothing above it to divide from: no rule against the top bar, on either side. */
-.page .cm-content > .cm-section:first-child .cm-section-rule { border-top-color: transparent; }
-.cue-col > .cue-block:first-of-type { border-top-color: transparent; }
-.cm-anchor { font: 500 12px/18px var(--sans); color: var(--pencil); background: var(--pencil-soft); border-radius: var(--radius-tag); padding: 1px 6px; cursor: pointer; }
-.cm-anchor.callback { background: transparent; box-shadow: inset 0 0 0 1px var(--pencil-line); }
+.page { min-width: 0; position: relative; }
+/* Draft: one editor per section, each in a row with its part of the outline. */
+.draft-sections { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); align-content: start; min-height: 100%; }
+.draft-row { display: contents; }
+.cue-cell { position: relative; padding: 14px 16px 16px; border-top: 1px solid var(--line); border-right: 1px solid var(--line); background: var(--desk); display: flex; flex-direction: column; gap: 6px; transition: background .15s; }
+.draft-row.active > .cue-cell { background: var(--pencil-soft); box-shadow: inset 3px 0 0 var(--pencil); }
+.cue-cell h3 { margin: 0 0 2px; font: 600 14px/20px var(--sans); color: var(--ink); }
+.cue-cell h3.gap { color: var(--objection); }
+.cue-cell h3.stray { color: var(--ink-3); font-style: italic; }
+/* No overflow clipping on a section's cell: the / menu sizes itself to its nearest clipping box. */
+.draft-row > .page { border-top: 1px dashed var(--line-strong); padding: 10px 0 14px; min-height: 64px; }
+.draft-row:first-child > .cue-cell, .draft-row:first-child > .page { border-top-color: transparent; }
+.draft-row.filler > * { min-height: 40vh; }
+.section-editor { height: 100%; cursor: text; }
+.draft-blocks .bn-container[data-color-scheme] {
+  --bn-colors-editor-background: transparent !important; --bn-colors-editor-text: var(--ink) !important; --bn-font-family: var(--serif) !important;
+  --bn-colors-menu-background: var(--card) !important; --bn-colors-hovered-background: var(--wash) !important; --bn-colors-selected-background: var(--wash) !important;
+}
+.draft-blocks .bn-editor { max-width: 760px; padding: 0 40px 0 48px; font: 400 19px/32px var(--serif); color: var(--ink); }
+.draft-blocks .bn-editor .bn-inline-content { font-family: var(--serif) !important; color: var(--ink); }
+/* Only on a blank draft, on the first section's line, where the cursor starts. */
+.draft-sections.blank > .draft-row:first-child .bn-block-content[data-content-type="paragraph"]::after { content: 'Write here. / for commands.'; font: italic 400 16px/32px var(--sans); color: var(--pencil); }
+/* A second Cmd+A: the whole draft is selected, to copy or clear. */
+.draft-sections.all-selected .draft-row:not(.filler) > .page { background: rgba(45, 92, 166, .12); }
+.ProseMirror-selectednode > .draft-chip, .ProseMirror-selectednode .draft-chip { box-shadow: 0 0 0 2px var(--pencil); }
+.draft-chip { cursor: grab; font: 500 12px/18px var(--sans); color: var(--pencil); background: var(--pencil-soft); border-radius: var(--radius-tag); padding: 1px 6px; }
 .page.past { white-space: pre-wrap; padding: 28px 40px; font: 400 19px/32px var(--serif); color: var(--ink-2); max-width: 760px; }
 
 /* ---------- hosted: welcome ---------- */
