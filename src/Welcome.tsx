@@ -85,7 +85,8 @@ export function Welcome({ signIn }: { signIn: React.ReactNode }) {
           <header className="welcome-top">
             <span className="wordmark">Scratch</span>
             <span className="spacer" />
-            <a className="btn btn-quiet btn-sm" href="#start">Sign in</a>
+            {/* Straight to the form, not the top of the section: the stage demos sit between them. */}
+            <a className="btn btn-quiet btn-sm" href="#sign-in" onClick={(e) => { e.preventDefault(); document.getElementById('sign-in')?.scrollIntoView({ block: 'center' }); }}>Sign in</a>
           </header>
           <div className="scroll-cue" ref={cue} aria-hidden><span>Scroll</span><Icon name="down" small /></div>
         </div>
@@ -94,7 +95,7 @@ export function Welcome({ signIn }: { signIn: React.ReactNode }) {
         <div className="stub" ref={stub} />
         <p className="welcome-lead">Scratch turns loose thoughts into pieces you can move around, so going from idea to draft is quick.</p>
         <Steps />
-        <div className="welcome-signin">
+        <div className="welcome-signin" id="sign-in">
           {signIn}
           <p>2 free credits to start.</p>
         </div>
@@ -271,8 +272,13 @@ function ShapeMini({ active }: { active: boolean }) {
   });
   const move = Math.floor((step - 1) / 4), phase = (step - 1) % 4;
   const placed = (k: number) => IDEAS[k].row >= 0 && (k < move || (k === move && phase >= 2));
-  // The ideas left in the tray close up as each one leaves.
-  const slot = (k: number) => spots!.tray[IDEAS.slice(0, k).filter((_, j) => !placed(j)).length];
+  // The ideas left in the tray close up as each one leaves, stacked by their own heights: a two-line card moving up
+  // into a one-line card's place would be overlapped by the card below it.
+  const slot = (k: number) => {
+    const t = spots!.tray, gap = t.length > 1 ? t[1].y - t[0].y - t[0].height : 0;
+    const y = IDEAS.slice(0, k).reduce((y, _, j) => (placed(j) ? y : y + t[j].height + gap), t[0].y);
+    return new DOMRect(t[0].x, y, t[k].width, t[k].height);
+  };
   const lifted = step > 0 && step <= MOVES * 4 && (phase === 1 || phase === 2) ? move : -1;
   const target = step > 0 && step <= MOVES * 4 && spots ? (phase < 2 ? slot(move) : spots.row[move]) : null;
   return (
