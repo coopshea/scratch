@@ -3,6 +3,8 @@ import { filterSuggestionItems } from '@blocknote/core';
 import { getDefaultReactSlashMenuItems, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { en } from '@blocknote/core/locales';
+import { Plugin } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import type { Blurt, Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { api } from './api.ts';
@@ -36,7 +38,17 @@ function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave:
     }, 0);
     return () => window.clearTimeout(id);
   }, [editor, readOnly]);
+  // Code is not prose: no spelling underlines in code blocks.
+  useEffect(() => { editor._tiptapEditor.registerPlugin(noSpellcheckInCode()); }, [editor]);
   return (
+    <div className="note-box" onMouseDown={(e) => {
+      // Below the last line is still the note: a click there puts the cursor at the end.
+      if (readOnly || (e.target as HTMLElement).closest('.bn-editor')) return;
+      e.preventDefault();
+      const doc = editor.document;
+      editor.setTextCursorPosition(doc[doc.length - 1], 'end');
+      editor.focus();
+    }}>
     <BlockNoteView
       editor={editor}
       editable={!readOnly}
@@ -50,8 +62,30 @@ function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave:
       <SuggestionMenuController triggerCharacter="/"
         getItems={async (query) => filterSuggestionItems([gapItem(editor), ...getDefaultReactSlashMenuItems(editor)], query)} />
     </BlockNoteView>
+    </div>
   );
 }
+
+/**
+ * Marks each code block spellcheck="false" (and the one holding the cursor, code-here) through the editor's own decorations. Setting the attribute on the DOM
+ * directly makes the editor redraw the block, which drops it again (and a watcher re-adding it loops forever).
+ */
+const noSpellcheckInCode = () => new Plugin({
+  props: {
+    decorations: (state) => {
+      const marks: Decoration[] = [];
+      const { from } = state.selection;
+      state.doc.descendants((node, pos) => {
+        if (node.type.name !== 'codeBlock') return true;
+        // The block holding the cursor is marked too, so it can say how to leave it.
+        const here = from > pos && from < pos + node.nodeSize;
+        marks.push(Decoration.node(pos, pos + node.nodeSize, here ? { spellcheck: 'false', class: 'code-here' } : { spellcheck: 'false' }));
+        return false;
+      });
+      return DecorationSet.create(state.doc, marks);
+    },
+  },
+});
 
 /** Scratch's own slash items come first in the menu, ahead of BlockNote's. A gap, `[ ]`, for something to find out later, with the cursor inside it. */
 function gapItem(editor: ReturnType<typeof useCreateBlockNote>) {
@@ -102,6 +136,8 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
 
   return (
     <aside className={`sheet ${readOnly ? 'read-only' : ''}`} onKeyDown={(e) => { if (e.key === 'Escape' && (e.target as HTMLElement).tagName !== 'INPUT') onClose(); }}>
+      <ResizeEdge />
+      <div className="sheet-scroll">
       <header className="sheet-head">
         <TypeSelect value={unit.type} onChange={(type) => onPatch(unit.id, { type })} />
         <span className="spacer" />
@@ -156,6 +192,34 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
       <div className="note">
         <NoteEditor key={unit.id + version} unit={unit} readOnly={readOnly} takeFocus={takeFocus} onSave={(note) => onPatch(unit.id, { note })} />
       </div>
+      </div>
     </aside>
   );
+}
+
+const SHEET_KEY = 'sheet-width';
+const clampWidth = (w: number) => Math.round(Math.min(Math.max(w, 320), Math.max(320, window.innerWidth * 0.6)));
+const setWidth = (w: number) => document.documentElement.style.setProperty('--sheet-w', `${w}px`);
+try { const saved = Number(localStorage.getItem(SHEET_KEY)); if (saved) setWidth(clampWidth(saved)); } catch { /* storage unavailable */ }
+
+/** The sheet's left edge: drag it to make the sheet wider or narrower (320px to 60% of the window). */
+function ResizeEdge() {
+  const [dragging, setDragging] = useState(false);
+  const start = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const handle = e.currentTarget, right = handle.parentElement!.getBoundingClientRect().right;
+    handle.setPointerCapture(e.pointerId);
+    setDragging(true);
+    let w = right - e.clientX;
+    const move = (ev: PointerEvent) => { w = clampWidth(right - ev.clientX); setWidth(w); };
+    const end = () => {
+      handle.removeEventListener('pointermove', move);
+      setDragging(false);
+      try { localStorage.setItem(SHEET_KEY, String(w)); } catch { /* storage unavailable */ }
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end, { once: true });
+    handle.addEventListener('pointercancel', end, { once: true });
+  };
+  return <div className={`sheet-resize ${dragging ? 'dragging' : ''}`} onPointerDown={start} role="separator" aria-orientation="vertical" aria-label="Resize" />;
 }
