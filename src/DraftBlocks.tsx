@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
+import { SideMenuController, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import type { Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { ensureSections, normalizeMarkers } from '../shared/markers.ts';
 import { STRUCTURES, type Board, type StructureDef } from '../shared/structures.ts';
 import { api } from './api.ts';
-import { ChipLabels, noSpellcheckInCode, schema, slashItems } from './blocks.tsx';
+import { ChipLabels, noSpellcheckInCode, schema, ScratchSideMenu, slashItems } from './blocks.tsx';
 import { blocksToMarkdown, markdownToBlocks } from './draftBlocks.ts';
 import { TYPE_INK } from './typeStyle.ts';
 
@@ -22,10 +22,11 @@ type Props = {
   draft: string;
   onDraft: (t: string) => void;
   onSelect: (id: string) => void;
+  onBoard: (b: Board) => void;
   structures: Record<string, StructureDef>;
 };
 
-export function DraftBlocks({ units, board, draft, onDraft, onSelect, structures }: Props) {
+export function DraftBlocks({ units, board, draft, onDraft, onSelect, onBoard, structures }: Props) {
   const editor = useCreateBlockNote({ schema, uploadFile: (file: File) => api.upload(file) });
   const colRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
@@ -124,17 +125,89 @@ export function DraftBlocks({ units, board, draft, onDraft, onSelect, structures
   };
   const toggle = (id: string) => setOpen((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
+
+  /* Ideas in the outline drag, as on the CodeMirror page: within or between sections to reorder, or into the text. */
+  const laneOf = (u: Unit): string | null => {
+    for (const [lane, ids] of Object.entries(assign)) if (ids.includes(u.id)) return lane;
+    return u.home && byId.has(u.home) ? laneOf(byId.get(u.home)!) : null;
+  };
+  /** Move an idea into a section, before `beforeId` (or at the end). Within its own section this reorders it. */
+  const move = (id: string, to: string, beforeId: string | null) => {
+    const u = byId.get(id);
+    if (!u || !laneById.has(to) || beforeId === id) return;
+    if (laneOf(u) === to && beforeId === null && (assign[to] ?? []).at(-1) === id) return;
+    const next: Record<string, string[]> = Object.fromEntries(Object.entries(assign).map(([k, v]) => [k, v.filter((x) => x !== id)]));
+    const list = next[to] ?? [];
+    const at = beforeId ? list.indexOf(beforeId) : -1;
+    next[to] = at < 0 ? [...list, id] : [...list.slice(0, at), id, ...list.slice(at)];
+    onBoard({ ...board, lanes: { ...board.lanes, [board.structure]: next } });
+  };
+  const [dropAt, setDropAt] = useState<{ lane: string; before: string | null; y: number } | null>(null);
+  useEffect(() => {
+    const clear = () => setDropAt(null);
+    window.addEventListener('dragend', clear);
+    return () => window.removeEventListener('dragend', clear);
+  }, []);
+  /** Where in a section a drop lands: before the first top-level idea below the pointer, shown by a line. */
+  const dropTarget = (lane: string, clientY: number) => {
+    const el = sectionEls.current.get(lane); if (!el) return null;
+    const top = el.getBoundingClientRect().top;
+    const heads = [...el.querySelectorAll<HTMLElement>(':scope > .cue.depth-0')];
+    const hit = heads.find((h) => { const r = h.getBoundingClientRect(); return clientY < r.top + r.height / 2; });
+    const y = hit ? hit.getBoundingClientRect().top - top - 2
+      : heads.length ? heads[heads.length - 1].getBoundingClientRect().bottom - top + 2 : (el.querySelector('h3')?.getBoundingClientRect().bottom ?? top) - top + 4;
+    return { lane, before: hit?.dataset.id ?? null, y };
+  };
+  const dragOver = (lane: string) => (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('application/x-unit')) return;
+    e.preventDefault();
+    const t = dropTarget(lane, e.clientY);
+    setDropAt((d) => (t && (d?.lane !== t.lane || d.before !== t.before || Math.abs(d.y - t.y) > 1) ? t : d));
+  };
+  const drop = (lane: string) => (e: React.DragEvent) => {
+    const id = e.dataTransfer.getData('application/x-unit');
+    const t = dropTarget(lane, e.clientY);
+    setDropAt(null);
+    if (id) { e.preventDefault(); move(id, lane, t?.before ?? null); }
+  };
+  // Dropped on the page, an idea goes in as a chip where it lands.
+  useEffect(() => {
+    const el = pageRef.current; if (!el) return;
+    const over = (e: DragEvent) => { if (e.dataTransfer?.types.includes('application/x-unit')) e.preventDefault(); };
+    const dropped = (e: DragEvent) => {
+      const id = e.dataTransfer?.getData('application/x-unit'); if (!id) return;
+      e.preventDefault(); e.stopPropagation();
+      const view = editor._tiptapEditor.view;
+      const pos = view.posAtCoords({ left: e.clientX, top: e.clientY })?.pos;
+      if (pos === undefined) return;
+      editor._tiptapEditor.chain().focus().insertContentAt(pos, [{ type: 'idea', attrs: { id } }, { type: 'text', text: ' ' }]).run();
+    };
+    el.addEventListener('dragover', over, true);
+    el.addEventListener('drop', dropped, true);
+    return () => { el.removeEventListener('dragover', over, true); el.removeEventListener('drop', dropped, true); };
+  }, [editor]);
+  /** A click opens or closes an idea; only a press held for a moment and then moved drags it. */
+  const pressedAt = useRef(0);
+  const HOLD_MS = 180;
+
   return (
     <div className="draft-rows">
       <style>{Object.entries(spacers).map(([lane, px]) => `.draft-blocks .draft-section[data-lane="${lane}"] { padding-top: ${px}px; }`).join('\n')}</style>
       <div className="draft-grid">
         <div className="cue-col" ref={colRef} style={{ height: colH || undefined }}>
           {rows.map((r) => (
-            <section key={r.lane} className="cue-block" style={{ top: r.y }}
+            <section key={r.lane} className="cue-block" style={{ top: r.y }} onDragOver={dragOver(r.lane)} onDrop={drop(r.lane)}
               ref={(el) => { if (el) sectionEls.current.set(r.lane, el); else sectionEls.current.delete(r.lane); }}>
+              {dropAt?.lane === r.lane && <div className="cue-drop-line" style={{ top: dropAt.y }} />}
               <h3>{laneById.get(r.lane)?.name ?? r.lane}</h3>
               {rowsFor(r.lane).map(({ unit: u, depth }) => (
-                <div key={u.id} data-id={u.id} className={`cue depth-${depth}`}>
+                <div key={u.id} data-id={u.id} className={`cue depth-${depth}`} draggable
+                  onPointerDown={() => { pressedAt.current = Date.now(); }}
+                  onDragStart={(e) => {
+                    if (Date.now() - pressedAt.current < HOLD_MS) { e.preventDefault(); return; }
+                    e.dataTransfer.setData('application/x-unit', u.id);
+                    e.dataTransfer.effectAllowed = 'copyMove';
+                  }}>
                   <div className="cue-line" onClick={() => { if (!open.has(u.id)) onSelect(u.id); toggle(u.id); }}>
                     <button className="disclose" aria-label="Show original">{open.has(u.id) ? '▾' : '▸'}</button>
                     {!(u.type === 'claim' && isRoot(u)) && <em style={{ color: TYPE_INK[u.type] }}>{u.type}</em>}
@@ -148,7 +221,8 @@ export function DraftBlocks({ units, board, draft, onDraft, onSelect, structures
         </div>
         <div className="page draft-blocks" ref={pageRef}>
           <ChipLabels.Provider value={labels}>
-            <BlockNoteView editor={editor} slashMenu={false} theme="light" onChange={onChange}>
+            <BlockNoteView editor={editor} slashMenu={false} sideMenu={false} theme="light" onChange={onChange}>
+              <SideMenuController sideMenu={ScratchSideMenu} />
               <SuggestionMenuController triggerCharacter="/" getItems={(query) => slashItems(editor, query)} />
             </BlockNoteView>
           </ChipLabels.Provider>

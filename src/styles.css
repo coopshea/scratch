@@ -268,7 +268,7 @@ select:focus { outline: none; text-decoration: underline; }
 /* The left padding holds BlockNote's + and drag handle (48px) inside the sheet. */
 .note .bn-container .bn-editor { cursor: text; margin-inline: -16px; padding: 8px 10px 8px 48px; }
 /* Hints take the size of the line they sit in (a heading's hint is heading-sized), only blue and italic. */
-.note .bn-block-content::after { font-style: italic !important; color: var(--pencil) !important; opacity: 1 !important; }
+:is(.note, .draft-blocks) .bn-block-content::after { font-style: italic !important; color: var(--pencil) !important; opacity: 1 !important; }
 .note .bn-container[data-color-scheme] {
   --bn-colors-editor-background: transparent !important;
   --bn-colors-editor-text: var(--ink) !important;
@@ -281,16 +281,16 @@ select:focus { outline: none; text-decoration: underline; }
 .note .bn-editor, .note .bn-editor .bn-default-styles, .note .bn-inline-content { font-family: var(--serif) !important; color: var(--ink); }
 .bn-suggestion-menu { font-family: var(--sans) !important; }
 /* Headings in a note stay near the note's own size: the sheet is narrow, and BlockNote's 3em heading is 45px here. */
-.note [data-content-type="heading"] { --level: 1.45em; }
-.note [data-content-type="heading"][data-level="2"] { --level: 1.25em; }
-.note [data-content-type="heading"][data-level="3"] { --level: 1.1em; }
-.note [data-content-type="heading"][data-level="4"], .note [data-content-type="heading"][data-level="5"], .note [data-content-type="heading"][data-level="6"] { --level: 1em; }
+:is(.note, .draft-blocks) [data-content-type="heading"] { --level: 1.45em; }
+:is(.note, .draft-blocks) [data-content-type="heading"][data-level="2"] { --level: 1.25em; }
+:is(.note, .draft-blocks) [data-content-type="heading"][data-level="3"] { --level: 1.1em; }
+:is(.note, .draft-blocks) [data-content-type="heading"][data-level="4"], :is(.note, .draft-blocks) [data-content-type="heading"][data-level="5"], :is(.note, .draft-blocks) [data-content-type="heading"][data-level="6"] { --level: 1em; }
 /* Code in a note: light like the page, in mono, with the ink colour (BlockNote's dark block hid black text). */
-.note .bn-block-content[data-content-type="codeBlock"] { background: var(--wash) !important; color: var(--ink) !important; border-radius: var(--radius-control); position: relative; }
+:is(.note, .draft-blocks) .bn-block-content[data-content-type="codeBlock"] { background: var(--wash) !important; color: var(--ink) !important; border-radius: var(--radius-control); position: relative; }
 /* Leaving a code block is Shift+Enter (or Enter three times at its end); say so while the cursor is in one. */
-.note .bn-editor:focus .bn-block-content[data-content-type="codeBlock"].code-here::before { content: 'Shift+Enter to leave the code block'; position: absolute; right: 10px; top: 6px; font: italic 400 12px/16px var(--sans); color: var(--pencil); pointer-events: none; }
-.note .bn-block-content[data-content-type="codeBlock"] pre, .note .bn-block-content[data-content-type="codeBlock"] code,
-.note .bn-block-content[data-content-type="codeBlock"] .bn-inline-content { font: 400 13px/20px var(--mono) !important; color: var(--ink) !important; background: transparent !important; }
+:is(.note, .draft-blocks) .bn-editor:focus .bn-block-content[data-content-type="codeBlock"].code-here::before { content: 'Shift+Enter to leave the code block'; position: absolute; right: 10px; top: 6px; font: italic 400 12px/16px var(--sans); color: var(--pencil); pointer-events: none; }
+:is(.note, .draft-blocks) .bn-block-content[data-content-type="codeBlock"] pre, :is(.note, .draft-blocks) .bn-block-content[data-content-type="codeBlock"] code,
+:is(.note, .draft-blocks) .bn-block-content[data-content-type="codeBlock"] .bn-inline-content { font: 400 13px/20px var(--mono) !important; color: var(--ink) !important; background: transparent !important; }
 
 /* ---------- history ---------- */
 .history { gap: 10px; }
@@ -448,7 +448,9 @@ select:focus { outline: none; text-decoration: underline; }
 .draft-section { width: 100%; }
 .draft-rule { border-top: 1px dashed var(--line-strong); height: 14px; margin: 0 -100vw 0 -48px; }
 .draft-blocks .bn-block-group > .bn-block-outer:first-child .draft-rule { border-top-color: transparent; }
-.draft-chip { font: 500 12px/18px var(--sans); color: var(--pencil); background: var(--pencil-soft); border-radius: var(--radius-tag); padding: 1px 6px; }
+.draft-blocks .bn-block-content[data-content-type="paragraph"]:has(.ProseMirror-trailingBreak:only-child):hover::after { content: 'Write here. / for commands.'; font: italic 400 16px/32px var(--sans); color: var(--pencil); }
+.ProseMirror-selectednode > .draft-chip, .ProseMirror-selectednode .draft-chip { box-shadow: 0 0 0 2px var(--pencil); }
+.draft-chip { cursor: grab; font: 500 12px/18px var(--sans); color: var(--pencil); background: var(--pencil-soft); border-radius: var(--radius-tag); padding: 1px 6px; }
 .page.past { white-space: pre-wrap; padding: 28px 40px; font: 400 19px/32px var(--serif); color: var(--ink-2); max-width: 760px; }
 
 /* ---------- hosted: welcome ---------- */

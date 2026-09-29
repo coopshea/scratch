@@ -236,7 +236,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
             </>
           : !outlinesLoaded ? <div className="loading" />
           : BLOCK_DRAFT
-            ? <DraftBlocks key={slug} units={units} board={board} draft={draft} structures={structures} onSelect={setSelectedId}
+            ? <DraftBlocks key={slug} units={units} board={board} draft={draft} structures={structures} onSelect={setSelectedId} onBoard={onBoard}
                 onDraft={(t) => setProject((p) => (p ? { ...p, draft: t } : p))} />
             : <Draft key={slug} units={units} board={board} draft={draft} structures={structures} onSelect={setSelectedId} onBoard={onBoard}
                 onDraft={(t) => setProject((p) => (p ? { ...p, draft: t } : p))} />}

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
+import { SideMenuController, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { en } from '@blocknote/core/locales';
 import type { Blurt, Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { api } from './api.ts';
-import { noSpellcheckInCode, schema, slashItems } from './blocks.tsx';
+import { noSpellcheckInCode, schema, ScratchSideMenu, slashItems } from './blocks.tsx';
 import { Icon } from './icons.tsx';
 import { LabelInput } from './LabelInput.tsx';
 import { HomeSelect, TypeSelect } from './TypeSelect.tsx';
@@ -42,7 +42,7 @@ function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave:
   return (
     <div className="note-box" onMouseDown={(e) => {
       // Below the last line is still the note: a click there puts the cursor at the end.
-      if (readOnly || (e.target as HTMLElement).closest('.bn-editor')) return;
+      if (readOnly || e.target !== e.currentTarget) return; // only the empty space below: the drag handle and menus sit outside the text
       e.preventDefault();
       const doc = editor.document;
       editor.setTextCursorPosition(doc[doc.length - 1], 'end');
@@ -52,12 +52,14 @@ function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave:
       editor={editor}
       editable={!readOnly}
       slashMenu={false}
+      sideMenu={false}
       theme="light"
       onChange={() => {
         window.clearTimeout(timer.current);
         timer.current = window.setTimeout(() => onSave(editor.document as unknown[]), 700);
       }}
     >
+      <SideMenuController sideMenu={ScratchSideMenu} />
       <SuggestionMenuController triggerCharacter="/"
         getItems={(query) => slashItems(editor, query)} />
     </BlockNoteView>

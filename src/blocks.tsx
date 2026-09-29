@@ -1,6 +1,9 @@
 import { createContext, useContext } from 'react';
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, filterSuggestionItems } from '@blocknote/core';
-import { createReactBlockSpec, createReactInlineContentSpec, getDefaultReactSlashMenuItems } from '@blocknote/react';
+import { SideMenuExtension } from '@blocknote/core/extensions';
+import {
+  createReactBlockSpec, createReactInlineContentSpec, getDefaultReactSlashMenuItems, SideMenu, useExtensionState, type SideMenuProps,
+} from '@blocknote/react';
 import { Plugin } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 
@@ -32,8 +35,11 @@ function Chip({ id }: { id: string }) {
 }
 const Idea = createReactInlineContentSpec(
   { type: 'idea', propSchema: { id: { default: '' } }, content: 'none' },
-  { render: ({ inlineContent }) => <Chip id={inlineContent.props.id} /> },
+  { meta: { draggable: true }, render: ({ inlineContent }) => <Chip id={inlineContent.props.id} /> },
 );
+// BlockNote makes inline content without text unselectable. A chip should behave like a word: click selects it,
+// Backspace deletes it, and it drags to another spot.
+Idea.implementation.node = Idea.implementation.node.extend({ selectable: true, draggable: true });
 
 export const schema = BlockNoteSchema.create({
   blockSpecs: { ...defaultBlockSpecs, section: Section() },
@@ -81,3 +87,15 @@ export const noSpellcheckInCode = () => new Plugin({
 
 export const slashItems = async (editor: ScratchEditor, query: string) =>
   filterSuggestionItems([gapItem(editor), ...getDefaultReactSlashMenuItems(editor)], query);
+
+/**
+ * The + and drag handle show beside a block with something in it. Not beside a section divider (hovering the space
+ * between sections found the divider and showed handles in empty air), and not beside an empty line: an empty line
+ * already reads as a place to write, and handles on each one looked like a stack of new boxes.
+ */
+export function ScratchSideMenu(props: SideMenuProps) {
+  const block = useExtensionState(SideMenuExtension, { selector: (s) => s?.block });
+  if (!block || block.type === 'section') return null;
+  const empty = Array.isArray(block.content) && block.content.length === 0 && block.type === 'paragraph' && !block.children.length;
+  return empty ? null : <SideMenu {...props} />;
+}
