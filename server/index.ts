@@ -6,7 +6,7 @@ import { projectDir } from './store.ts';
 
 const production = process.env.NODE_ENV === 'production';
 // Local keys come from .env. Production reads only the host's variables, so a stray .env can never supply personal keys.
-if (!production) await import('dotenv/config');
+if (!production) (await import('dotenv')).config({ quiet: true });
 const PORT = Number(process.env.PORT ?? 5178);
 
 /** Hosted when Clerk is configured: sign-in, one folder per writer, accounts in Postgres. Otherwise the local app. */
