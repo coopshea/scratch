@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { SideMenuController, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { en } from '@blocknote/core/locales';
+import { Plugin } from '@tiptap/pm/state';
+import type { Node as PMNode } from '@tiptap/pm/model';
 import type { Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { ensureSections, normalizeMarkers } from '../shared/markers.ts';
@@ -19,6 +21,20 @@ import { TYPE_INK } from './typeStyle.ts';
 
 // No hint on every empty line: a blank draft gets one, on its first line (see .draft-blocks.blank).
 const dictionary = { ...en, placeholders: { ...en.placeholders, default: '' } };
+
+const laneOrder = (doc: PMNode) => {
+  const lanes: string[] = [];
+  doc.descendants((n) => { if (n.type.name === 'section') lanes.push(n.attrs.lane as string); return true; });
+  return lanes.join(',');
+};
+/**
+ * Section dividers stay put: an edit that would remove, add or reorder one is refused. Otherwise Backspace at the
+ * start of a section merged it into the divider above, deleting it and pulling everything below up a section.
+ * The page itself re-lays sections (on load, or when the outline changes) while `allow()` is true.
+ */
+const keepSections = (allow: () => boolean) => new Plugin({
+  filterTransaction: (tr, state) => !tr.docChanged || allow() || laneOrder(tr.doc) === laneOrder(state.doc),
+});
 
 type Props = {
   units: Unit[];
@@ -57,7 +73,10 @@ export function DraftBlocks({ units, board, draft, onDraft, onSelect, onBoard, s
   const rowsFor = (lane: string) => (assign[lane] ?? []).map((id) => byId.get(id)).filter((u): u is Unit => !!u)
     .flatMap((u) => [{ unit: u, depth: 0 }, ...(isRoot(u) ? live.filter((k) => k.home === u.id && !placed.has(k.id)).map((k) => ({ unit: k, depth: 1 })) : [])]);
 
-  useEffect(() => { editor._tiptapEditor.registerPlugin(noSpellcheckInCode()); }, [editor]);
+  useEffect(() => {
+    editor._tiptapEditor.registerPlugin(noSpellcheckInCode());
+    editor._tiptapEditor.registerPlugin(keepSections(() => loading.current));
+  }, [editor]);
 
   // Load the stored markdown, with a section for every level of the outline; re-lay it when the outline changes.
   // A new editor (first open, or one recreated) always loads from the stored draft, never from its own empty page.
