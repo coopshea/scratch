@@ -2,31 +2,19 @@ import { createContext, useContext } from 'react';
 import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, filterSuggestionItems } from '@blocknote/core';
 import { SideMenuExtension } from '@blocknote/core/extensions';
 import {
-  createReactBlockSpec, createReactInlineContentSpec, getDefaultReactSlashMenuItems, SideMenu, useExtensionState, type SideMenuProps,
+  createReactInlineContentSpec, getDefaultReactSlashMenuItems, SideMenu, useExtensionState, type SideMenuProps,
 } from '@blocknote/react';
 import { Plugin } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 
 /**
- * One block schema for every BlockNote editor in Scratch: the note in the idea sheet and the Draft page. Sharing it is
- * what lets a block be dragged from one into the other; BlockNote moves blocks between editors on the same page when
+ * One block schema for every BlockNote editor in Scratch: the note in the idea sheet and each section of the draft. Sharing it is
+ * what lets a block be dragged from one into another; BlockNote moves blocks between editors on the same page when
  * their schemas match.
  */
 
 /** Unit labels by id, for chips. Draft provides it; elsewhere a chip falls back to "idea". */
 export const ChipLabels = createContext<Map<string, string>>(new Map());
-
-/** A section divider in the draft: the dashed rule a section of the outline lines up with. Not written in. */
-const Section = createReactBlockSpec(
-  { type: 'section', propSchema: { lane: { default: '' } }, content: 'none' },
-  {
-    // The cursor passes over a divider; it is never selected as a block.
-    meta: { selectable: false },
-    render: ({ block }) => <div className="draft-section" data-lane={block.props.lane}><div className="draft-rule" /></div>,
-    // Exported markdown carries the marker, as the CodeMirror draft always has.
-    toExternalHTML: () => <div />,
-  },
-);
 
 /** An idea placed in the text: a quiet chip showing the idea's label. */
 function Chip({ id }: { id: string }) {
@@ -42,7 +30,7 @@ const Idea = createReactInlineContentSpec(
 Idea.implementation.node = Idea.implementation.node.extend({ selectable: true, draggable: true });
 
 export const schema = BlockNoteSchema.create({
-  blockSpecs: { ...defaultBlockSpecs, section: Section() },
+  blockSpecs: defaultBlockSpecs,
   inlineContentSpecs: { ...defaultInlineContentSpecs, idea: Idea },
 });
 export type ScratchEditor = typeof schema.BlockNoteEditor;
@@ -89,13 +77,12 @@ export const slashItems = async (editor: ScratchEditor, query: string) =>
   filterSuggestionItems([gapItem(editor), ...getDefaultReactSlashMenuItems(editor)], query);
 
 /**
- * The + and drag handle show beside a block with something in it. Not beside a section divider (hovering the space
- * between sections found the divider and showed handles in empty air), and not beside an empty line: an empty line
- * already reads as a place to write, and handles on each one looked like a stack of new boxes.
+ * The + and drag handle show beside a block with something in it, not beside an empty line: an empty line already
+ * reads as a place to write, and handles on each one looked like a stack of new boxes.
  */
 export function ScratchSideMenu(props: SideMenuProps) {
   const block = useExtensionState(SideMenuExtension, { selector: (s) => s?.block });
-  if (!block || block.type === 'section') return null;
+  if (!block) return null;
   const empty = Array.isArray(block.content) && block.content.length === 0 && block.type === 'paragraph' && !block.children.length;
   return empty ? null : <SideMenu {...props} />;
 }

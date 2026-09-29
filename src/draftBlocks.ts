@@ -48,39 +48,33 @@ function mapInline(blocks: ScratchBlock[], f: (c: Inline[]) => Inline[]): Scratc
   });
 }
 
-export function markdownToBlocks(editor: ScratchEditor, doc: string): ScratchBlock[] {
-  const out: ScratchBlock[] = [];
-  let buf: string[] = [];
-  const flush = () => {
-    const md = buf.join('\n').replace(ANCHOR, '⟦u:$1⟧').trim();
-    buf = [];
-    if (md) out.push(...mapInline(editor.tryParseMarkdownToBlocks(md), chipsFromTokens));
-  };
-  for (const line of doc.split('\n')) {
-    const m = line.trim().match(SECTION);
-    if (!m) { buf.push(line); continue; }
-    flush();
-    out.push({ type: 'section', props: { lane: m[1] } } as unknown as ScratchBlock);
-  }
-  flush();
-  // Every section keeps a line to write on, as the markdown draft's blank line under each marker did.
-  return out.flatMap((b, i) => (b.type === 'section' && (i + 1 === out.length || out[i + 1].type === 'section')
-    ? [b, { type: 'paragraph' } as unknown as ScratchBlock] : [b]));
+/** One section's markdown as blocks (never empty: an editor always holds at least one line). */
+export function markdownToBlocks(editor: ScratchEditor, md: string): ScratchBlock[] {
+  const text = md.replace(ANCHOR, '⟦u:$1⟧').trim();
+  const blocks = text ? mapInline(editor.tryParseMarkdownToBlocks(text), chipsFromTokens) : [];
+  return blocks.length ? blocks : [{ type: 'paragraph' } as unknown as ScratchBlock];
 }
 
+/** One section's blocks as markdown, anchors back to `<!--u:id-->`. */
 export function blocksToMarkdown(editor: ScratchEditor, blocks: ScratchBlock[]): string {
-  const parts: string[] = [];
-  let run: ScratchBlock[] = [];
-  const flush = () => {
-    if (!run.length) return;
-    parts.push(editor.blocksToMarkdownLossy(mapInline(run, tokensFromChips)).replace(TOKEN, '<!--u:$1-->').trim());
-    run = [];
-  };
-  for (const b of blocks) {
-    if (b.type !== 'section') { run.push(b); continue; }
-    flush();
-    parts.push(`<!--s:${(b.props as { lane: string }).lane}-->`);
-  }
-  flush();
-  return parts.join('\n') + '\n';
+  return editor.blocksToMarkdownLossy(mapInline(blocks, tokensFromChips)).replace(TOKEN, '<!--u:$1-->').trim();
 }
+
+export type Part = { lane: string; md: string };
+
+/** The stored draft as sections in order. Text before the first marker belongs to the first section. */
+export function splitSections(doc: string): Part[] {
+  const parts: Part[] = [];
+  const lead: string[] = [];
+  for (const line of doc.split('\n')) {
+    const m = line.trim().match(SECTION);
+    if (m) parts.push({ lane: m[1], md: '' });
+    else if (parts.length) parts[parts.length - 1].md += (parts[parts.length - 1].md ? '\n' : '') + line;
+    else lead.push(line);
+  }
+  if (parts.length && lead.join('').trim()) parts[0].md = `${lead.join('\n')}\n${parts[0].md}`;
+  return parts.map((p) => ({ ...p, md: p.md.trim() }));
+}
+
+/** Sections back into the stored draft: each marker on its own line, then its text. */
+export const joinSections = (parts: Part[]) => parts.map((p) => `<!--s:${p.lane}-->\n${p.md ? `${p.md}\n` : ''}`).join('\n');

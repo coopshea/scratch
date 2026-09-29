@@ -437,19 +437,27 @@ select:focus { outline: none; text-decoration: underline; }
 .cue-col > .cue-block:first-of-type { border-top-color: transparent; }
 .cm-anchor { font: 500 12px/18px var(--sans); color: var(--pencil); background: var(--pencil-soft); border-radius: var(--radius-tag); padding: 1px 6px; cursor: pointer; }
 .cm-anchor.callback { background: transparent; box-shadow: inset 0 0 0 1px var(--pencil-line); }
-/* Proof of concept: Draft on BlockNote (?editor=blocks). Same page metrics as the CodeMirror draft. */
+/* Proof of concept: Draft on BlockNote (?editor=blocks). One editor per section, each in a row with its outline. */
+.draft-sections { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); align-content: start; min-height: 100%; }
+.draft-row { display: contents; }
+.cue-cell { position: relative; padding: 14px 16px 16px; border-top: 1px solid var(--line); border-right: 1px solid var(--line); background: var(--desk); display: flex; flex-direction: column; gap: 6px; transition: background .15s; }
+.draft-row.active > .cue-cell { background: var(--pencil-soft); box-shadow: inset 3px 0 0 var(--pencil); }
+.cue-cell h3 { margin: 0 0 2px; font: 600 14px/20px var(--sans); color: var(--ink); }
+.cue-cell h3.stray { color: var(--ink-3); font-style: italic; }
+.draft-row > .page { border-top: 1px dashed var(--line-strong); padding: 10px 0 14px; min-height: 64px; }
+.draft-row:first-child > .cue-cell, .draft-row:first-child > .page { border-top-color: transparent; }
+.draft-row.filler > * { min-height: 40vh; }
+.section-editor { height: 100%; cursor: text; }
 .draft-blocks .bn-container[data-color-scheme] {
   --bn-colors-editor-background: transparent !important; --bn-colors-editor-text: var(--ink) !important; --bn-font-family: var(--serif) !important;
   --bn-colors-menu-background: var(--card) !important; --bn-colors-hovered-background: var(--wash) !important; --bn-colors-selected-background: var(--wash) !important;
 }
-.draft-blocks .bn-editor { max-width: 760px; padding: 0 40px 80px 48px; font: 400 19px/32px var(--serif); color: var(--ink); }
+.draft-blocks .bn-editor { max-width: 760px; padding: 0 40px 0 48px; font: 400 19px/32px var(--serif); color: var(--ink); }
 .draft-blocks .bn-editor .bn-inline-content { font-family: var(--serif) !important; color: var(--ink); }
-.draft-blocks .bn-block-outer:has(> .bn-block > .bn-block-content[data-content-type="section"]) { pointer-events: none; }
-.draft-section { width: 100%; }
-.draft-rule { border-top: 1px dashed var(--line-strong); height: 14px; margin: 0 -100vw 0 -48px; }
-.draft-blocks .bn-block-group > .bn-block-outer:first-child .draft-rule { border-top-color: transparent; }
-/* Only on a blank draft, on the first line (the one after the first divider), where the cursor starts. */
-.draft-blocks.blank .bn-block-group > .bn-block-outer:nth-child(2) .bn-block-content[data-content-type="paragraph"]::after { content: 'Write here. / for commands.'; font: italic 400 16px/32px var(--sans); color: var(--pencil); }
+/* Only on a blank draft, on the first section's line, where the cursor starts. */
+.draft-sections.blank > .draft-row:first-child .bn-block-content[data-content-type="paragraph"]::after { content: 'Write here. / for commands.'; font: italic 400 16px/32px var(--sans); color: var(--pencil); }
+/* A second Cmd+A: the whole draft is selected, to copy or clear. */
+.draft-sections.all-selected .draft-row:not(.filler) > .page { background: rgba(45, 92, 166, .12); }
 .ProseMirror-selectednode > .draft-chip, .ProseMirror-selectednode .draft-chip { box-shadow: 0 0 0 2px var(--pencil); }
 .draft-chip { cursor: grab; font: 500 12px/18px var(--sans); color: var(--pencil); background: var(--pencil-soft); border-radius: var(--radius-tag); padding: 1px 6px; }
 .page.past { white-space: pre-wrap; padding: 28px 40px; font: 400 19px/32px var(--serif); color: var(--ink-2); max-width: 760px; }
