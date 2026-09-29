@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ProjectSummary } from '../shared/types.ts';
 import { projects, slug as current } from './api.ts';
+import { posthog } from './posthog.ts';
 
 function ago(iso: string) {
   const m = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
@@ -16,6 +17,12 @@ export function DocList() {
   const [docs, setDocs] = useState<ProjectSummary[]>([]);
   useEffect(() => { projects.list().then(setDocs); }, []);
 
+  const createDocument = async () => {
+    const created = await projects.create('untitled');
+    posthog?.capture('document_created');
+    go(created.slug);
+  };
+
   // Deleting asks twice: the × turns into "delete?" for a few seconds. The document goes to projects/.trash.
   const [confirming, setConfirming] = useState<string | null>(null);
   const timer = useRef<number | undefined>(undefined);
@@ -28,14 +35,17 @@ export function DocList() {
     }
     setConfirming(null);
     await projects.remove(slug);
+    posthog?.capture('document_deleted');
     const rest = docs.filter((d) => d.slug !== slug);
-    if (slug === current) go(rest[0]?.slug ?? (await projects.create('untitled')).slug);
-    else setDocs(rest);
+    if (slug === current) {
+      if (rest[0]) go(rest[0].slug);
+      else await createDocument();
+    } else setDocs(rest);
   };
 
   return (
     <nav className="docs">
-      <button className="link new" onClick={async () => go((await projects.create('untitled')).slug)}>new</button>
+      <button className="link new" onClick={createDocument}>new</button>
       {docs.map((d) => (
         <div key={d.slug} className={`doc-row ${confirming === d.slug ? 'confirming' : ''}`}>
           <button className={`doc ${d.slug === current ? 'on' : ''}`} onClick={() => go(d.slug)}>

@@ -12,6 +12,7 @@ import { UNIT_TYPES } from '../shared/types.ts';
 import { TYPE_INK } from './typeStyle.ts';
 import { rectCollide, resolveOverlaps, type BoxNode } from './collide.ts';
 import { layoutCard, masonry } from './cards.ts';
+import { posthog } from './posthog.ts';
 
 type SimNode = BoxNode & { claim: boolean };
 type SimLink = { source: string | SimNode; target: string | SimNode; key: string };
@@ -283,6 +284,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
       next[lane.id] = at < 0 ? [...others, id] : [...others.slice(0, at), id, ...others.slice(at)];
     }
     onBoard({ ...board, lanes: { ...board.lanes, [sid]: next } });
+    posthog?.capture('unit_placed', { destination: laneIdx === null ? 'ideas_pool' : 'outline_level' });
   };
 
   const press = (e: React.PointerEvent, id: string) => {
@@ -353,6 +355,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
     if (to === sid || readOnly || !structures[to]) return;
     const has = Object.values(board.lanes[to] ?? {}).some((a) => a.length);
     onBoard({ structure: to, lanes: { ...board.lanes, [to]: has ? board.lanes[to] : reslot(board, structures[sid], structures[to], live) } });
+    posthog?.capture('outline_changed', { outline_type: structures[to].custom ? 'custom' : 'built_in' });
   };
 
   const saveOutline = async () => {
@@ -361,6 +364,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
     if (!dialog.outline.trim()) { setDialog({ ...dialog, error: 'Add at least one level' }); return; }
     try {
       const saved = await archetypes.save({ id: dialog.id, name: dialog.name, outline: dialog.outline });
+      posthog?.capture('custom_outline_saved', { operation: dialog.id ? 'updated' : 'created' });
       onCustom(await archetypes.list());
       setDialog(null);
       if (saved.id !== sid) {

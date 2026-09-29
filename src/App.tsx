@@ -13,6 +13,7 @@ import { Icon } from './icons.tsx';
 import { NoteSheet } from './NoteSheet.tsx';
 import { Structure } from './Structure.tsx';
 import { Talk } from './Talk.tsx';
+import { posthog } from './posthog.ts';
 
 type Stage = 'talk' | 'structure' | 'draft';
 const STAGES: Stage[] = ['talk', 'structure', 'draft'];
@@ -60,12 +61,16 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
     try {
       const md = await (await fetch(`/api/p/${slug}/export.md?copy=1`)).text();
       await navigator.clipboard.writeText(md);
+      posthog?.capture('markdown_copied');
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch (e) { setError((e as Error).message); }
   };
 
-  const setStage = (s: Stage) => { setStageState(s); setSelectedId(null); writePref(`stage:${slug}`, s); };
+  const setStage = (s: Stage) => {
+    if (s !== stage) posthog?.capture('stage_changed', { stage: s });
+    setStageState(s); setSelectedId(null); writePref(`stage:${slug}`, s);
+  };
   const toggleDocs = () => setDocsOpen((o) => { writePref('docs-open', String(!o)); return !o; });
 
   const setUnits = useCallback((fn: (u: Unit[]) => Unit[]) => setProject((p) => (p ? { ...p, units: fn(p.units) } : p)), []);
@@ -111,7 +116,11 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
 
   const onBlurt = async (text: string) => {
     setBusy(true);
-    try { return await handleParsed(await api.blurt(text)); }
+    try {
+      const parsed = await handleParsed(await api.blurt(text));
+      if (parsed) posthog?.capture('ideas_cut', { input_length: text.length });
+      return parsed;
+    }
     catch (e) { setError((e as Error).message); return false; }
     finally { setBusy(false); }
   };
@@ -135,6 +144,8 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
         return next;
       });
       if (patch.status === 'cut' && selectedId === id) setSelectedId(null);
+      const updatedFields = Object.keys(patch).filter((field) => field !== 'note' && field !== 'priorArt');
+      if (updatedFields.length) posthog?.capture('unit_updated', { updated_fields: updatedFields });
     } catch (e) {
       if (prev) setUnits(() => prev);
       setError((e as Error).message);
@@ -149,7 +160,11 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
   };
 
   const onRename = async (title: string) => {
-    try { const meta = await api.rename(title); setProject((p) => (p ? { ...p, meta } : p)); }
+    try {
+      const meta = await api.rename(title);
+      setProject((p) => (p ? { ...p, meta } : p));
+      posthog?.capture('project_renamed');
+    }
     catch (e) { setError((e as Error).message); }
   };
 
