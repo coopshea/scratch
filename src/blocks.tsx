@@ -1,0 +1,83 @@
+import { createContext, useContext } from 'react';
+import { BlockNoteSchema, defaultBlockSpecs, defaultInlineContentSpecs, filterSuggestionItems } from '@blocknote/core';
+import { createReactBlockSpec, createReactInlineContentSpec, getDefaultReactSlashMenuItems } from '@blocknote/react';
+import { Plugin } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
+
+/**
+ * One block schema for every BlockNote editor in Scratch: the note in the idea sheet and the Draft page. Sharing it is
+ * what lets a block be dragged from one into the other; BlockNote moves blocks between editors on the same page when
+ * their schemas match.
+ */
+
+/** Unit labels by id, for chips. Draft provides it; elsewhere a chip falls back to "idea". */
+export const ChipLabels = createContext<Map<string, string>>(new Map());
+
+/** A section divider in the draft: the dashed rule a section of the outline lines up with. Not written in. */
+const Section = createReactBlockSpec(
+  { type: 'section', propSchema: { lane: { default: '' } }, content: 'none' },
+  {
+    // The cursor passes over a divider; it is never selected as a block.
+    meta: { selectable: false },
+    render: ({ block }) => <div className="draft-section" data-lane={block.props.lane}><div className="draft-rule" /></div>,
+    // Exported markdown carries the marker, as the CodeMirror draft always has.
+    toExternalHTML: () => <div />,
+  },
+);
+
+/** An idea placed in the text: a quiet chip showing the idea's label. */
+function Chip({ id }: { id: string }) {
+  const labels = useContext(ChipLabels);
+  return <span className="draft-chip" data-id={id}>{labels.get(id) ?? 'idea'}</span>;
+}
+const Idea = createReactInlineContentSpec(
+  { type: 'idea', propSchema: { id: { default: '' } }, content: 'none' },
+  { render: ({ inlineContent }) => <Chip id={inlineContent.props.id} /> },
+);
+
+export const schema = BlockNoteSchema.create({
+  blockSpecs: { ...defaultBlockSpecs, section: Section() },
+  inlineContentSpecs: { ...defaultInlineContentSpecs, idea: Idea },
+});
+export type ScratchEditor = typeof schema.BlockNoteEditor;
+export type ScratchBlock = typeof schema.Block;
+
+/** Scratch's own slash items come first in the menu, ahead of BlockNote's. A gap, `[ ]`, for something to find out later, with the cursor inside it. */
+function gapItem(editor: ScratchEditor) {
+  return {
+    title: 'Gap',
+    subtext: 'Something to find out later',
+    aliases: ['gap', 'todo', 'later', 'bracket'],
+    group: 'Scratch',
+    icon: <span className="slash-glyph">[ ]</span>,
+    onItemClick: () => {
+      editor.insertInlineContent(['[]']);
+      const tt = editor._tiptapEditor;
+      tt.commands.setTextSelection(tt.state.selection.from - 1);
+    },
+  };
+}
+
+/**
+ * Marks each code block spellcheck="false" (and the one holding the cursor, code-here) through the editor's own decorations. Setting the attribute on the DOM
+ * directly makes the editor redraw the block, which drops it again (and a watcher re-adding it loops forever).
+ */
+export const noSpellcheckInCode = () => new Plugin({
+  props: {
+    decorations: (state) => {
+      const marks: Decoration[] = [];
+      const { from } = state.selection;
+      state.doc.descendants((node, pos) => {
+        if (node.type.name !== 'codeBlock') return true;
+        // The block holding the cursor is marked too, so it can say how to leave it.
+        const here = from > pos && from < pos + node.nodeSize;
+        marks.push(Decoration.node(pos, pos + node.nodeSize, here ? { spellcheck: 'false', class: 'code-here' } : { spellcheck: 'false' }));
+        return false;
+      });
+      return DecorationSet.create(state.doc, marks);
+    },
+  },
+});
+
+export const slashItems = async (editor: ScratchEditor, query: string) =>
+  filterSuggestionItems([gapItem(editor), ...getDefaultReactSlashMenuItems(editor)], query);

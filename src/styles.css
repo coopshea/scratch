@@ -437,6 +437,18 @@ select:focus { outline: none; text-decoration: underline; }
 .cue-col > .cue-block:first-of-type { border-top-color: transparent; }
 .cm-anchor { font: 500 12px/18px var(--sans); color: var(--pencil); background: var(--pencil-soft); border-radius: var(--radius-tag); padding: 1px 6px; cursor: pointer; }
 .cm-anchor.callback { background: transparent; box-shadow: inset 0 0 0 1px var(--pencil-line); }
+/* Proof of concept: Draft on BlockNote (?editor=blocks). Same page metrics as the CodeMirror draft. */
+.draft-blocks .bn-container[data-color-scheme] {
+  --bn-colors-editor-background: transparent !important; --bn-colors-editor-text: var(--ink) !important; --bn-font-family: var(--serif) !important;
+  --bn-colors-menu-background: var(--card) !important; --bn-colors-hovered-background: var(--wash) !important; --bn-colors-selected-background: var(--wash) !important;
+}
+.draft-blocks .bn-editor { max-width: 760px; padding: 0 40px 80px 48px; font: 400 19px/32px var(--serif); color: var(--ink); }
+.draft-blocks .bn-editor .bn-inline-content { font-family: var(--serif) !important; color: var(--ink); }
+.draft-blocks .bn-block-outer:has(> .bn-block > .bn-block-content[data-content-type="section"]) { pointer-events: none; }
+.draft-section { width: 100%; }
+.draft-rule { border-top: 1px dashed var(--line-strong); height: 14px; margin: 0 -100vw 0 -48px; }
+.draft-blocks .bn-block-group > .bn-block-outer:first-child .draft-rule { border-top-color: transparent; }
+.draft-chip { font: 500 12px/18px var(--sans); color: var(--pencil); background: var(--pencil-soft); border-radius: var(--radius-tag); padding: 1px 6px; }
 .page.past { white-space: pre-wrap; padding: 28px 40px; font: 400 19px/32px var(--serif); color: var(--ink-2); max-width: 760px; }
 
 /* ---------- hosted: welcome ---------- */

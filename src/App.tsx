@@ -7,6 +7,10 @@ import { api, archetypes, slug } from './api.ts';
 import { DocList } from './DocList.tsx';
 import { EmptyBoard } from './EmptyBoard.tsx';
 import { Draft } from './Draft.tsx';
+import { DraftBlocks } from './DraftBlocks.tsx';
+
+/** Proof of concept: ?editor=blocks opens Draft on BlockNote instead of CodeMirror. */
+const BLOCK_DRAFT = new URLSearchParams(location.search).get('editor') === 'blocks';
 import { Graph } from './Graph.tsx';
 import { History } from './History.tsx';
 import { Icon } from './icons.tsx';
@@ -231,8 +235,11 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
               <div className="page past">{draft}</div>
             </>
           : !outlinesLoaded ? <div className="loading" />
-          : <Draft key={slug} units={units} board={board} draft={draft} structures={structures} onSelect={setSelectedId} onBoard={onBoard}
-              onDraft={(t) => setProject((p) => (p ? { ...p, draft: t } : p))} />}
+          : BLOCK_DRAFT
+            ? <DraftBlocks key={slug} units={units} board={board} draft={draft} structures={structures} onSelect={setSelectedId}
+                onDraft={(t) => setProject((p) => (p ? { ...p, draft: t } : p))} />
+            : <Draft key={slug} units={units} board={board} draft={draft} structures={structures} onSelect={setSelectedId} onBoard={onBoard}
+                onDraft={(t) => setProject((p) => (p ? { ...p, draft: t } : p))} />}
         {sheet}
       </main>
     );

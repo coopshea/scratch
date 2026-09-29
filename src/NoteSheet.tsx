@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { filterSuggestionItems } from '@blocknote/core';
-import { getDefaultReactSlashMenuItems, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
+import { SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { en } from '@blocknote/core/locales';
-import { Plugin } from '@tiptap/pm/state';
-import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import type { Blurt, Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { api } from './api.ts';
+import { noSpellcheckInCode, schema, slashItems } from './blocks.tsx';
 import { Icon } from './icons.tsx';
 import { LabelInput } from './LabelInput.tsx';
 import { HomeSelect, TypeSelect } from './TypeSelect.tsx';
@@ -20,6 +18,7 @@ const dictionary = {
 
 function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave: (doc: unknown[]) => void; readOnly: boolean; takeFocus: boolean }) {
   const editor = useCreateBlockNote({
+    schema,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     initialContent: unit.note && unit.note.length ? (unit.note as any) : undefined,
     uploadFile: (file: File) => api.upload(file),
@@ -60,47 +59,10 @@ function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave:
       }}
     >
       <SuggestionMenuController triggerCharacter="/"
-        getItems={async (query) => filterSuggestionItems([gapItem(editor), ...getDefaultReactSlashMenuItems(editor)], query)} />
+        getItems={(query) => slashItems(editor, query)} />
     </BlockNoteView>
     </div>
   );
-}
-
-/**
- * Marks each code block spellcheck="false" (and the one holding the cursor, code-here) through the editor's own decorations. Setting the attribute on the DOM
- * directly makes the editor redraw the block, which drops it again (and a watcher re-adding it loops forever).
- */
-const noSpellcheckInCode = () => new Plugin({
-  props: {
-    decorations: (state) => {
-      const marks: Decoration[] = [];
-      const { from } = state.selection;
-      state.doc.descendants((node, pos) => {
-        if (node.type.name !== 'codeBlock') return true;
-        // The block holding the cursor is marked too, so it can say how to leave it.
-        const here = from > pos && from < pos + node.nodeSize;
-        marks.push(Decoration.node(pos, pos + node.nodeSize, here ? { spellcheck: 'false', class: 'code-here' } : { spellcheck: 'false' }));
-        return false;
-      });
-      return DecorationSet.create(state.doc, marks);
-    },
-  },
-});
-
-/** Scratch's own slash items come first in the menu, ahead of BlockNote's. A gap, `[ ]`, for something to find out later, with the cursor inside it. */
-function gapItem(editor: ReturnType<typeof useCreateBlockNote>) {
-  return {
-    title: 'Gap',
-    subtext: 'Something to find out later',
-    aliases: ['gap', 'todo', 'later', 'bracket'],
-    group: 'Scratch',
-    icon: <span className="slash-glyph">[ ]</span>,
-    onItemClick: () => {
-      editor.insertInlineContent(['[]']);
-      const tt = editor._tiptapEditor;
-      tt.commands.setTextSelection(tt.state.selection.from - 1);
-    },
-  };
 }
 
 type Props = {
