@@ -505,7 +505,8 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
           e.dataTransfer.effectAllowed = 'copyMove';
         }}
         onMouseEnter={() => { hoverFromChip.current = false; setHover(u.id); }} onMouseLeave={() => setHover(null)}>
-        <div className="cue-line" onClick={() => toggle(u.id)}>
+        {/* One click opens the idea: its words below it and its note on the right. */}
+        <div className="cue-line" onClick={() => { if (!open.has(u.id)) onSelect(u.id); toggle(u.id); }}>
           <button className="disclose" aria-label="Show original">{open.has(u.id) ? '▾' : '▸'}</button>
           {!(u.type === 'claim' && isRoot(u)) && <em style={{ color: TYPE_INK[u.type] }}>{u.type}</em>}
           <span className={`cue-label ${isRoot(u) ? 'is-claim' : ''}`} onDoubleClick={() => insert(u.id)}>{u.label}</span>
