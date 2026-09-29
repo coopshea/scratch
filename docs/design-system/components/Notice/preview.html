@@ -1,0 +1,27 @@
+<!-- @dsCard group="Guidance" height=220 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Notice</title>
+<style>
+  body { margin: 0; }
+  .pv { padding: 20px 24px; min-height: 100vh; box-sizing: border-box; }
+  .pv.on-desk { background: var(--desk); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cap { font: 500 11px/14px var(--font-sans); letter-spacing: .04em; color: var(--ink-3); }
+</style>
+</head>
+<body class="s">
+<div class="pv">
+<div class="col" style="width: 420px; gap: 14px">
+  <div class="notice is-error">
+    <p class="notice-title">Out of credits. Your spill is saved.</p>
+    <div class="notice-actions"><button class="btn btn-secondary btn-sm">$5 · 56 credits</button><button class="btn btn-secondary btn-sm">$10 · 117</button><button class="btn btn-secondary btn-sm">$20 · 239</button><span class="spacer"></span><button class="btn btn-quiet btn-sm"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15.5" r="3.5"/><path d="m10.5 13 8.5-8.5M16 7.5l2.5 2.5"/></svg>Use my key</button></div>
+  </div>
+  <p class="inline-error">The cut timed out. Your spill is saved. <button class="btn btn-quiet btn-sm" style="height: 24px">Try again</button></p>
+</div>
+</div>
+</body>
+</html>

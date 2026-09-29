@@ -1,0 +1,35 @@
+<!-- @dsCard group="Shape" height=360 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lane</title>
+<style>
+  body { margin: 0; }
+  .pv { padding: 20px 24px; min-height: 100vh; box-sizing: border-box; }
+  .pv.on-desk { background: var(--desk); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cap { font: 500 11px/14px var(--font-sans); letter-spacing: .04em; color: var(--ink-3); }
+</style>
+</head>
+<body class="s">
+<div class="pv">
+<div style="margin: -20px -24px" class="lanes">
+  <div class="lane">
+    <div class="lane-head"><span class="lane-name">Hook</span></div>
+    <div class="lane-body"><div class="lane-row"><div class="idea is-head"><p class="label">Blades run past melting</p></div><div class="idea is-piece "><div class="top"><span class="tag">evidence</span></div><p class="label">Film cooling holes</p></div><div class="idea is-piece "><div class="top"><span class="tag t-question">question</span></div><p class="label">Why not ceramics?</p></div></div></div>
+  </div>
+  <div class="lane is-accepting">
+    <div class="lane-head"><span class="lane-name">Argument 1</span></div>
+    <div class="lane-body" style="align-items: center"><span class="drop-plus"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></span></div>
+  </div>
+  <div class="lane">
+    <div class="lane-head"><span class="lane-name">Conclusion</span></div>
+    <div class="lane-body"></div>
+  </div>
+  <div class="lane-add"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>Add a level</div>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,24 @@
+<!-- @dsCard group="Actions" height=100 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Segmented</title>
+<style>
+  body { margin: 0; }
+  .pv { padding: 20px 24px; min-height: 100vh; box-sizing: border-box; }
+  .pv.on-desk { background: var(--desk); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cap { font: 500 11px/14px var(--font-sans); letter-spacing: .04em; color: var(--ink-3); }
+</style>
+</head>
+<body class="s">
+<div class="pv">
+<div class="col">
+  <div class="seg" role="tablist"><button class="is-on" role="tab" aria-selected="true">Persuasive</button><button role="tab">Paper</button><button role="tab">Teaching</button><button role="tab"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>Your own</button></div>
+  <span class="cap">outline chooser in Shape</span>
+</div>
+</div>
+</body>
+</html>

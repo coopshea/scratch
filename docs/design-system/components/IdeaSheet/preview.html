@@ -1,0 +1,29 @@
+<!-- @dsCard group="Panels" height=520 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>IdeaSheet</title>
+<style>
+  body { margin: 0; }
+  .pv { padding: 20px 24px; min-height: 100vh; box-sizing: border-box; }
+  .pv.on-desk { background: var(--desk); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cap { font: 500 11px/14px var(--font-sans); letter-spacing: .04em; color: var(--ink-3); }
+</style>
+</head>
+<body class="s">
+<div class="pv">
+<div style="margin: -20px -24px; display: flex; justify-content: flex-end; background: var(--desk); min-height: 520px">
+<aside class="sheet">
+  <div class="sheet-head"><span class="tag">concept</span><button class="btn btn-quiet btn-sm">Move to <svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m6.5 9.5 5.5 5.5 5.5-5.5"/></svg></button><span class="spacer"></span><button class="btn btn-quiet btn-sm">Cut</button><button class="icon-btn" aria-label="Close"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button></div>
+  <p class="sheet-label is-yours">Bleed air</p>
+  <div class="sheet-section"><span class="field-label">Your words</span><blockquote class="sheet-quote">air bled off the compressor and pushed out through tiny holes so it lays a film over the surface</blockquote></div>
+  <div class="sheet-section"><span class="field-label">Note</span>
+    <div class="blocks" style="padding-left: 0"><div class="block"><p class="block-text is-empty">Type <span class="kbd">/</span> for blocks</p></div></div></div>
+</aside>
+</div>
+</div>
+</body>
+</html>

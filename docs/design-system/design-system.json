@@ -1,0 +1,25 @@
+{
+  "v": 3,
+  "assetGroups": {},
+  "blobs": {},
+  "createdOnFiles": {
+    "at": "2026-09-28T23:56:49Z",
+    "v": 1
+  },
+  "docs": {
+    "readme": "project/README.md",
+    "sections": []
+  },
+  "groups": [],
+  "lastChange": {
+    "at": "2026-09-29T07:06:40Z",
+    "by": "Cooper Shea",
+    "via": "Claude Code",
+    "note": "Welcome scroll as a pinned pencil over moving paper; the board's hint says \"Let's get those ducks in a row.\""
+  },
+  "layout": "files",
+  "libraries": [],
+  "namespace": "Scratch",
+  "sections": {},
+  "title": "Scratch"
+}

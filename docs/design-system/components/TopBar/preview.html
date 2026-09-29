@@ -1,0 +1,29 @@
+<!-- @dsCard group="Navigation" height=90 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TopBar</title>
+<style>
+  body { margin: 0; }
+  .pv { padding: 20px 24px; min-height: 100vh; box-sizing: border-box; }
+  .pv.on-desk { background: var(--desk); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cap { font: 500 11px/14px var(--font-sans); letter-spacing: .04em; color: var(--ink-3); }
+</style>
+</head>
+<body class="s">
+<div class="pv">
+<div style="margin: -20px -24px 0">
+<header class="topbar">
+  <div class="doc" style="width: 280px"><button class="icon-btn" aria-label="Documents"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9.5 4.5v15"/></svg></button><span class="doc-title">Gas turbines</span></div>
+  <span class="spacer"></span>
+  <nav class="rail" aria-label="Stages"><button class="step"><span class="num">1</span>Spill</button><span class="sep"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg></span><button class="step is-current"><span class="num">2</span>Shape</button><span class="sep"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg></span><button class="step"><span class="num">3</span>Draft</button></nav>
+  <span class="spacer"></span>
+  <div style="width: 280px; display: flex; justify-content: flex-end; align-items: center; gap: 8px"><a class="meter" href="#">38 credits</a><button class="btn btn-quiet btn-sm"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>History</button><span class="avatar">CS</span></div>
+</header>
+</div>
+</div>
+</body>
+</html>

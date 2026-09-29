@@ -1,0 +1,37 @@
+<!-- @dsCard group="Guidance" height=300 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>EmptyHint</title>
+<style>
+  body { margin: 0; }
+  .pv { padding: 20px 24px; min-height: 100vh; box-sizing: border-box; }
+  .pv.on-desk { background: var(--desk); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cap { font: 500 11px/14px var(--font-sans); letter-spacing: .04em; color: var(--ink-3); }
+</style>
+</head>
+<body class="s">
+<div class="pv">
+<div class="row" style="align-items: stretch; gap: 0; margin: -20px -24px; min-height: 300px">
+  <div class="spill" style="width: 380px; border-right: 1px solid var(--line)">
+    <div style="padding: 28px 28px 0; display: flex; flex-direction: column; gap: 6px">
+      <p style="margin: 0; font: 400 26px/34px var(--font-serif); color: var(--pencil)">Braindump here.</p>
+      <p class="hint">Type, speak or paste everything you're thinking. Fragments are fine.</p>
+    </div>
+  </div>
+  <div class="board" style="flex: 1; display: grid; place-items: center; padding: 24px">
+    <div class="hint-center">
+      <div style="display: flex; gap: 10px; align-items: center">
+        <div class="ghost-group" style="width: 110px; border-radius: 22px; background: var(--pencil-soft)"><div class="ghost" style="height: 18px; background: #fff"></div><div class="ghost" style="height: 18px; width: 60%; background: #fff"></div></div>
+        <div class="ghost-group" style="width: 80px; border-radius: 22px; background: var(--pencil-soft)"><div class="ghost" style="height: 18px; background: #fff"></div></div>
+      </div>
+      <p class="hint">Ideas gather here in loose groups. Let's get those ducks in a row.</p>
+    </div>
+  </div>
+</div>
+</div>
+</body>
+</html>

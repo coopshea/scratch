@@ -1,0 +1,39 @@
+<!-- @dsCard group="Panels" height=420 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NoteBlocks</title>
+<style>
+  body { margin: 0; }
+  .pv { padding: 20px 24px; min-height: 100vh; box-sizing: border-box; }
+  .pv.on-desk { background: var(--desk); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cap { font: 500 11px/14px var(--font-sans); letter-spacing: .04em; color: var(--ink-3); }
+</style>
+</head>
+<body class="s">
+<div class="pv">
+<div style="width: 380px; position: relative">
+  <div class="blocks">
+    <div class="block is-hover"><span class="block-handles"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6.5" r=".9"/><circle cx="9" cy="12" r=".9"/><circle cx="9" cy="17.5" r=".9"/><circle cx="15" cy="6.5" r=".9"/><circle cx="15" cy="12" r=".9"/><circle cx="15" cy="17.5" r=".9"/></svg></span><p class="block-text">Find a real number before using this.</p></div>
+    <div class="block"><span class="block-handles"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6.5" r=".9"/><circle cx="9" cy="12" r=".9"/><circle cx="9" cy="17.5" r=".9"/><circle cx="15" cy="6.5" r=".9"/><circle cx="15" cy="12" r=".9"/><circle cx="15" cy="17.5" r=".9"/></svg></span><p class="block-text is-bullet">[bleed fraction on a modern engine]</p></div>
+    <div class="block"><span class="block-handles"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6.5" r=".9"/><circle cx="9" cy="12" r=".9"/><circle cx="9" cy="17.5" r=".9"/><circle cx="15" cy="6.5" r=".9"/><circle cx="15" cy="12" r=".9"/><circle cx="15" cy="17.5" r=".9"/></svg></span><p class="block-text">/</p></div>
+  </div>
+  <div class="slash" style="left: 44px; top: 86px">
+  <div class="slash-group">Basic</div>
+  <div class="slash-item is-active"><span class="slash-icon">T</span><div><div class="slash-name">Text</div><div class="slash-hint">Just start writing</div></div></div>
+  <div class="slash-item"><span class="slash-icon">H</span><div><div class="slash-name">Heading</div></div></div>
+  <div class="slash-item"><span class="slash-icon">•</span><div><div class="slash-name">Bullet list</div></div></div>
+  <div class="slash-item"><span class="slash-icon">☐</span><div><div class="slash-name">To-do</div></div></div>
+  <div class="slash-group">Scratch</div>
+  <div class="slash-item"><span class="slash-icon">[ ]</span><div><div class="slash-name">Gap</div><div class="slash-hint">Something to find out later</div></div></div>
+  <div class="slash-item"><span class="slash-icon"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5h5.5a2.5 2.5 0 0 1 2.5 2.5v11a2 2 0 0 0-2-2H4z"/><path d="M20 5.5h-5.5A2.5 2.5 0 0 0 12 8v11a2 2 0 0 1 2-2h6z"/></svg></span><div><div class="slash-name">From Readwise</div><div class="slash-hint">Quote a highlight with its source</div></div></div>
+  <div class="slash-item"><span class="slash-icon">↔</span><div><div class="slash-name">Link an idea</div></div></div>
+  <div class="slash-item"><span class="slash-icon"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 19.5h4l10-10-4-4-10 10v4z"/><path d="m13 7 4 4"/></svg></span><div><div class="slash-name">Image</div></div></div>
+</div>
+</div>
+</div>
+</body>
+</html>
