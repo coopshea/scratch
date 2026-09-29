@@ -13,6 +13,7 @@ const PATHS = {
   check: <path d="M5 12.5 10 17.5 19 7" />,
   close: <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />,
   plus: <path d="M12 5.5v13M5.5 12h13" />,
+  mic: <><rect x="9" y="3.5" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v2.5" /></>,
 };
 
 export type IconName = keyof typeof PATHS;
