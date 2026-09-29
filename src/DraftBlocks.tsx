@@ -11,7 +11,7 @@ import { toMarkdown } from '../shared/export.ts';
 import { ensureSections, normalizeMarkers } from '../shared/markers.ts';
 import { STRUCTURES, type Board, type StructureDef } from '../shared/structures.ts';
 import { api } from './api.ts';
-import { ChipLabels, noSpellcheckInCode, schema, ScratchSideMenu, slashItems, type ScratchEditor } from './blocks.tsx';
+import { ChipLabels, noBlockHints, noSpellcheckInCode, schema, ScratchSideMenu, slashItems, type ScratchEditor } from './blocks.tsx';
 import { blocksToMarkdown, joinSections, markdownToBlocks, splitSections, type Part } from './draftBlocks.ts';
 import { TYPE_INK } from './typeStyle.ts';
 
@@ -28,10 +28,10 @@ import { TYPE_INK } from './typeStyle.ts';
  * Not here yet: ideas moving to the section their chip lands in, and suggestions.
  */
 
-// No hint on every empty line or list item: a blank draft gets one, on its first line (see .draft-sections.blank).
+// No hint on every empty line or new block: a blank draft gets one, on its first line (see .draft-sections.blank).
 const dictionary = {
   ...en,
-  placeholders: { ...en.placeholders, default: '', bulletListItem: '', numberedListItem: '', checkListItem: '', toggleListItem: '' },
+  placeholders: { ...en.placeholders, ...noBlockHints, default: '' },
 };
 
 /* ---------- one section ---------- */

@@ -5,7 +5,7 @@ import { en } from '@blocknote/core/locales';
 import type { Blurt, Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { api } from './api.ts';
-import { noSpellcheckInCode, schema, ScratchSideMenu, slashItems } from './blocks.tsx';
+import { noBlockHints, noSpellcheckInCode, schema, ScratchSideMenu, slashItems } from './blocks.tsx';
 import { Icon } from './icons.tsx';
 import { LabelInput } from './LabelInput.tsx';
 import { HomeSelect, TypeSelect } from './TypeSelect.tsx';
@@ -13,7 +13,7 @@ import { HomeSelect, TypeSelect } from './TypeSelect.tsx';
 // An empty note says it can be written in; an empty line in a longer note only mentions the slash commands.
 const dictionary = {
   ...en,
-  placeholders: { ...en.placeholders, default: 'Use / for key commands.', emptyDocument: 'Type additional context here, and use / for key commands.' },
+  placeholders: { ...en.placeholders, ...noBlockHints, default: 'Use / for key commands.', emptyDocument: 'Type additional context here, and use / for key commands.' },
 };
 
 function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave: (doc: unknown[]) => void; readOnly: boolean; takeFocus: boolean }) {

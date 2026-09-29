@@ -29,6 +29,9 @@ const Idea = createReactInlineContentSpec(
 // Backspace deletes it, and it drags to another spot.
 Idea.implementation.node = Idea.implementation.node.extend({ selectable: true, draggable: true });
 
+/** No hint naming the kind of block just chosen from the / menu ("Heading", "List", "Toggle"): the line is empty, and the writer types. */
+export const noBlockHints = { heading: '', bulletListItem: '', numberedListItem: '', checkListItem: '', toggleListItem: '' };
+
 export const schema = BlockNoteSchema.create({
   blockSpecs: defaultBlockSpecs,
   inlineContentSpecs: { ...defaultInlineContentSpecs, idea: Idea },

@@ -269,6 +269,8 @@ select:focus { outline: none; text-decoration: underline; }
 .note .bn-container .bn-editor { cursor: text; margin-inline: -16px; padding: 8px 10px 8px 48px; }
 /* Hints take the size of the line they sit in (a heading's hint is heading-sized), only blue and italic. */
 :is(.note, .draft-blocks) .bn-block-content::after { font-style: italic !important; color: var(--pencil) !important; opacity: 1 !important; }
+/* A block just chosen from the / menu shows nothing; the writer types. Hints are for plain empty lines only. */
+:is(.note, .draft-blocks) .bn-block-content:not([data-content-type="paragraph"])::after { content: none !important; }
 .note .bn-container[data-color-scheme] {
   --bn-colors-editor-background: transparent !important;
   --bn-colors-editor-text: var(--ink) !important;
