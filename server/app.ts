@@ -6,6 +6,7 @@ import path from 'node:path';
 import { checkKeyShape, checkReadwiseShape, FREE_PARSES, MAX_ACCOUNTS, type Account, type Accounts, type Paid } from './accounts.ts';
 import { CREDIT_MICROS, DONATION_CENTS, MAX_CENTS, MIN_CENTS, STRIPE_FEE, type Back, type Billing } from './billing.ts';
 import type { Usage } from './parser.ts';
+import { captureServerError } from './posthog.ts';
 import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
 import {
   appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
@@ -302,7 +303,7 @@ export function createApp(hosted?: Hosted): Express {
       if (paid?.kind === 'free' && !usage) await hosted!.accounts.refundParse(account!.id, 'free');
     };
     try {
-      const units = await parseInto(slug, blurt, paid?.apiKey, (u) => { usage = u; });
+      const units = await parseInto(slug, blurt, paid?.apiKey, (u) => { usage = u; }, account?.id);
       await settle();
       return units;
     } catch (e) {
@@ -311,13 +312,13 @@ export function createApp(hosted?: Hosted): Express {
     }
   }
 
-  async function parseInto(slug: string, blurt: Blurt, apiKey?: string, onUsage?: (u: Usage) => void) {
+  async function parseInto(slug: string, blurt: Blurt, apiKey?: string, onUsage?: (u: Usage) => void, distinctId?: string) {
     const before = readUnits(slug);
     const live = before.filter((u) => u.status !== 'cut');
     const vocab = [...new Set(live.map((u) => u.label))];
     const roots = live.filter(isRoot).map((u) => ({ id: u.id, type: u.type, label: u.label }));
 
-    const parsed = await parseBlurt(blurt.text, vocab, roots, apiKey, onUsage);
+    const parsed = await parseBlurt(blurt.text, vocab, roots, apiKey, onUsage, { projectId: slug, distinctId });
 
     return withLock(slug, () => {
       const units = readUnits(slug);
@@ -373,6 +374,7 @@ export function createApp(hosted?: Hosted): Express {
   const parseError = (e: unknown) => {
     if (!hosted || e instanceof HttpError || isWriterFacing(e)) return describeError(e);
     console.error(e);
+    captureServerError(e);
     return 'The parse failed. Your blurt is saved; try again.';
   };
 
@@ -527,7 +529,7 @@ export function createApp(hosted?: Hosted): Express {
     // Our own errors, and library ones that carry a client status (a missing file, a body too large).
     const own = (err as { status?: unknown }).status;
     const status = err instanceof HttpError ? err.status : typeof own === 'number' && own >= 400 && own < 500 ? own : 500;
-    if (status === 500) console.error(err);
+    if (status === 500) { console.error(err); captureServerError(err); }
     // Hosted, only our own messages reach the browser; others can carry server paths.
     const message = err instanceof HttpError || !hosted ? (err as Error).message : status === 404 ? 'Not found' : 'Server error';
     res.status(status).json({ error: message ?? 'Server error' });

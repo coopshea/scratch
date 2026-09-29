@@ -25,9 +25,14 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
   const parsedIds = new Set(units.map((u) => u.blurtId));
   const unparsed = blurts.filter((b) => !parsedIds.has(b.id) && b.id !== failedBlurtId);
 
+  const [verb, setVerb] = useState(pick);
+  const cutting = useCutting(busy);
+  const dictation = useDictation((heard) => setText((t) => (t && !/\s$/.test(t) ? `${t} ` : t) + heard.trim()));
+
   const submit = async () => {
+    dictation.stop();
     if (!text.trim() || busy) return;
-    if (await onBlurt(text)) setText('');
+    if (await onBlurt(text)) { setText(''); setVerb(pick); }
   };
 
   return (
@@ -42,21 +47,34 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
           disabled={busy}
           autoFocus
           spellCheck
-          aria-label="Braindump here. Type, speak or paste everything you're thinking."
+          aria-label="Braindump here. Type, speak, or paste anything. Fragments are fine."
         />
         {!text && (
           <div className="spill-hint" aria-hidden>
             <p className="big">Braindump here.</p>
-            <p className="hint">Type, speak or paste everything you're thinking. Fragments are fine.</p>
+            <p className="hint">
+              Type, <button className="link speak" onClick={dictation.toggle} tabIndex={-1}>speak</button>, or paste anything. Fragments are fine.
+            </p>
           </div>
         )}
       </div>
       <div className="blurt-bar">
-        <button className="btn btn-primary" onClick={submit} disabled={busy || !text.trim()}>
-          <Icon name="scissors" />{busy ? 'cutting…' : 'cut into ideas'}{!busy && <span className="kbd">⌘↵</span>}
+        <button className={`btn btn-quiet ${dictation.listening ? 'listening' : ''}`} onClick={dictation.toggle} disabled={busy}
+          aria-pressed={dictation.listening}>
+          <Icon name="mic" />{dictation.listening ? 'listening… stop' : 'speak'}
+        </button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy || !text.trim()} aria-label="Cut into ideas">
+          <Icon name="scissors" />{busy ? cutting : verb}{!busy && <kbd className="kbd">⌘↵</kbd>}
         </button>
       </div>
 
+      {dictation.problem && (
+        <p className="dictation-problem" role="status">
+          {dictation.problem === 'blocked'
+            ? 'Allow the microphone for this site to dictate.'
+            : <>Dictation doesn't work in this browser. Try Chrome, or <a href="https://wisprflow.ai/r/COOPER4" target="_blank" rel="noreferrer">Wispr Flow</a>, via my referral link.</>}
+        </p>
+      )}
       {error && outOfCredits && failedBlurtId && (
         <div className="notice" role="alert">
           <p className="notice-title">Out of credits. Your spill is saved.</p>
@@ -86,4 +104,73 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
       ))}
     </div>
   );
+}
+
+/** The cut button's words, picked at random each time; the -ing forms turn over while the parser works. */
+const VERBS = [
+  'cut into ideas', 'chop concepts', 'segment insights', 'polish the turd', 'kick the anthill', 'slice and dice',
+  'untangle the yarn', 'herd the cats', 'pan for gold', 'shake the tree', 'sort the junk drawer', 'separate wheat from chaff',
+];
+const GERUNDS = [
+  'cutting…', 'chopping…', 'segmenting…', 'polishing…', 'kicking the anthill…', 'slicing and dicing…',
+  'untangling…', 'herding cats…', 'panning for gold…', 'shaking the tree…', 'rummaging…', 'threshing…',
+];
+const pick = () => VERBS[Math.floor(Math.random() * VERBS.length)];
+
+function useCutting(busy: boolean) {
+  const [word, setWord] = useState(GERUNDS[0]);
+  useEffect(() => {
+    if (!busy) return;
+    const next = () => setWord((w) => { let n = w; while (n === w) n = GERUNDS[Math.floor(Math.random() * GERUNDS.length)]; return n; });
+    next();
+    const t = window.setInterval(next, 2500);
+    return () => window.clearInterval(t);
+  }, [busy]);
+  return word;
+}
+
+type Recognition = {
+  continuous: boolean; interimResults: boolean; lang: string;
+  onresult: ((e: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null;
+  onerror: ((e: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void; stop: () => void;
+};
+const speech = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
+const Recognizer = speech.SpeechRecognition ?? speech.webkitSpeechRecognition;
+
+/**
+ * The browser's own speech recognition, adding what it hears to the page. Some browsers have none (Firefox), and some
+ * have it but cannot reach a speech service (Brave fails with 'network'); both say so and point to Wispr Flow.
+ */
+function useDictation(onHeard: (text: string) => void) {
+  const [listening, setListening] = useState(false);
+  const [problem, setProblem] = useState<'unavailable' | 'blocked' | null>(null);
+  const rec = useRef<Recognition | null>(null);
+  const heard = useRef(onHeard);
+  heard.current = onHeard;
+  useEffect(() => () => rec.current?.stop(), []);
+
+  const stop = () => rec.current?.stop();
+  const toggle = () => {
+    if (rec.current) { stop(); return; }
+    setProblem(null);
+    if (!Recognizer) { setProblem('unavailable'); return; }
+    const r = new Recognizer();
+    r.continuous = true;
+    r.interimResults = false;
+    r.lang = navigator.language;
+    r.onresult = (e) => {
+      for (let i = e.resultIndex; i < e.results.length; i++) if (e.results[i].isFinal) heard.current(e.results[i][0].transcript);
+    };
+    // 'no-speech' and 'aborted' are ordinary endings; the rest mean dictation cannot work here.
+    r.onerror = (e) => {
+      if (e.error === 'not-allowed') setProblem('blocked');
+      else if (e.error !== 'no-speech' && e.error !== 'aborted') setProblem('unavailable');
+    };
+    r.onend = () => { rec.current = null; setListening(false); };
+    rec.current = r;
+    try { r.start(); setListening(true); } catch { rec.current = null; setProblem('unavailable'); }
+  };
+  return { listening, problem, toggle, stop };
 }

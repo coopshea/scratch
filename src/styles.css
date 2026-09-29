@@ -68,7 +68,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn-quiet.btn-sm { padding: 0 8px; }
 .btn:disabled { background: transparent; color: var(--ink-3); border: 1px dashed var(--line-strong); cursor: default; }
 .btn-quiet:disabled { border-color: transparent; }
-.kbd { display: inline-block; font: 500 11px/16px var(--mono); padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px;
+.kbd { display: inline-flex; align-items: center; gap: 1px; height: 22px; font: 500 13px/1 var(--sans); padding: 0 6px; border: 1px solid var(--line-strong); border-bottom-width: 2px;
   border-radius: var(--radius-tag); color: var(--ink-2); background: var(--card); }
 .btn-primary .kbd { background: rgba(251, 249, 244, .14); border-color: transparent; color: var(--on-ink); }
 .btn:disabled .kbd { background: transparent; color: var(--ink-3); }
@@ -158,6 +158,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* The hint sits on the same 30px rules as typed text: one line each. */
 .spill-hint .big { margin: 0; font: 400 24px/30px var(--serif); color: var(--pencil); }
 .spill-hint .hint { margin: 0; line-height: 30px; }
+.spill-hint .speak { pointer-events: auto; font: inherit; color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.dictation-problem { margin: 0; text-align: right; font: 400 13px/18px var(--sans); color: var(--ink-2); }
+.dictation-problem a { color: inherit; }
+.blurt-bar .listening { color: var(--objection); }
 .blurt-bar { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
 .error { margin: 0; font: 400 13px/18px var(--sans); color: var(--objection); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 .unparsed { display: flex; gap: 12px; align-items: center; justify-content: space-between; font: 400 14px/20px var(--serif); color: var(--ink-2);
