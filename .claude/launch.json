@@ -9,6 +9,13 @@
         "dev:watch"
       ],
       "port": 5180
+    },
+    {
+      "name": "logo-scene",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["scripts/logo/serve.py"],
+      "port": 5199,
+      "url": "http://localhost:5199"
     }
   ]
 }
