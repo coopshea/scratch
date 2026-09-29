@@ -54,7 +54,9 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
   const boardSeq = useRef(0);
   const [custom, setCustom] = useState<StructureDef[]>([]);
   const structures = useMemo(() => structureMap(custom), [custom]);
-  useEffect(() => { archetypes.list().then(setCustom).catch(() => undefined); }, []);
+  // Draft waits for the writer's own outlines, so it never lays out sections for a stand-in outline first.
+  const [outlinesLoaded, setOutlinesLoaded] = useState(false);
+  useEffect(() => { archetypes.list().then(setCustom).catch(() => undefined).finally(() => setOutlinesLoaded(true)); }, []);
   const [copied, setCopied] = useState(false);
 
   const copyExport = async () => {
@@ -228,6 +230,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
                 units={units} selectedId={selectedId} onSelect={setSelectedId} />
               <div className="page past">{draft}</div>
             </>
+          : !outlinesLoaded ? <div className="loading" />
           : <Draft key={slug} units={units} board={board} draft={draft} structures={structures} onSelect={setSelectedId} onBoard={onBoard}
               onDraft={(t) => setProject((p) => (p ? { ...p, draft: t } : p))} />}
         {sheet}

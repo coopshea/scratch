@@ -33,6 +33,7 @@
     "@opentelemetry/exporter-logs-otlp-http": "^0.222.0",
     "@opentelemetry/resources": "^2.11.0",
     "@opentelemetry/sdk-logs": "^0.222.0",
+    "@tiptap/pm": "^3.31.3",
     "d3-force": "^3.0.0",
     "dotenv": "^18.0.4",
     "downshift": "^9.4.0",

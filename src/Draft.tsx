@@ -9,7 +9,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import type { Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
-import { normalizeMarkers } from '../shared/markers.ts';
+import { ensureSections, normalizeMarkers } from '../shared/markers.ts';
 import { STRUCTURES, type Board, type Lane, type StructureDef } from '../shared/structures.ts';
 import { api } from './api.ts';
 import { TYPE_INK } from './typeStyle.ts';
@@ -51,25 +51,6 @@ const keepCursorOffMarkers = EditorState.transactionFilter.of((tr) => {
   const pos = down ? (next ?? prev) : (prev ?? next);
   return pos === null ? tr : [tr, { selection: { anchor: pos }, sequential: true }];
 });
-
-/** Every lane of the structure gets a section marker, inserted in outline order before the next lane that has one. */
-function ensureSections(doc: string, laneIds: string[]): string {
-  const lines = doc.split('\n');
-  const markerLine = (id: string) => lines.findIndex((l) => l.trim() === sectionFor(id));
-  if (!lines.some((l) => SECTION.test(l.trim()))) {
-    const body = doc.trim();
-    return `${laneIds.map((id, i) => `${sectionFor(id)}\n${i === 0 && body ? body + '\n' : ''}`).join('\n')}`;
-  }
-  let changed = false;
-  laneIds.forEach((id, i) => {
-    if (markerLine(id) >= 0) return;
-    const nextId = laneIds.slice(i + 1).find((n) => markerLine(n) >= 0);
-    const at = nextId ? markerLine(nextId) : lines.length;
-    lines.splice(at, 0, sectionFor(id), '');
-    changed = true;
-  });
-  return changed ? lines.join('\n') : doc;
-}
 
 type Marker = { lane: string; from: number; to: number };
 
@@ -524,7 +505,8 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
           e.dataTransfer.effectAllowed = 'copyMove';
         }}
         onMouseEnter={() => { hoverFromChip.current = false; setHover(u.id); }} onMouseLeave={() => setHover(null)}>
-        <div className="cue-line" onClick={() => toggle(u.id)}>
+        {/* One click opens the idea: its words below it and its note on the right. */}
+        <div className="cue-line" onClick={() => { if (!open.has(u.id)) onSelect(u.id); toggle(u.id); }}>
           <button className="disclose" aria-label="Show original">{open.has(u.id) ? '▾' : '▸'}</button>
           {!(u.type === 'claim' && isRoot(u)) && <em style={{ color: TYPE_INK[u.type] }}>{u.type}</em>}
           <span className={`cue-label ${isRoot(u) ? 'is-claim' : ''}`} onDoubleClick={() => insert(u.id)}>{u.label}</span>
