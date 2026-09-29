@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
-import { SignIn, useAuth, UserButton } from '@clerk/react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { SignIn, useAuth, useUser, UserButton } from '@clerk/react';
 import { App, type Billing } from './App.tsx';
 import { billing as billingApi, slug } from './api.ts';
 import { Icon } from './icons.tsx';
+import { openFeedback, posthog } from './posthog.ts';
 import { Welcome } from './Welcome.tsx';
 
 export type Me = {
@@ -37,21 +38,60 @@ const creditsLeft = (me: Me) => freeLeft(me) + Math.floor(Math.max(0, me.account
 /** The hosted site: the welcome page and sign-in, then the app, or the account page at ?account. */
 export function Gate() {
   const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded: isUserLoaded, user } = useUser();
+  const identifiedUserId = useRef<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoaded || !isUserLoaded) return;
+    if (!isSignedIn || !user) {
+      if (identifiedUserId.current) {
+        posthog?.reset();
+        identifiedUserId.current = null;
+      }
+      return;
+    }
+    if (identifiedUserId.current === user.id) return;
+    if (identifiedUserId.current) posthog?.reset();
+    posthog?.identify(user.id, {
+      email: user.primaryEmailAddress?.emailAddress,
+      name: user.fullName,
+    });
+    identifiedUserId.current = user.id;
+  }, [isLoaded, isSignedIn, isUserLoaded, user]);
 
   const load = useCallback(() => fetch('/api/me').then(async (res) => {
     const body = await res.json().catch(() => ({}));
     if (res.ok) setMe(body); else setProblem(body.error ?? `Could not load your account (${res.status})`);
   }).catch(() => setProblem('Could not reach the server')), []);
   useEffect(() => { if (isSignedIn) load(); }, [isSignedIn, load]);
+  // Account facts for analytics; never the key or the balance amount.
+  useEffect(() => {
+    if (!me) return;
+    posthog?.setPersonProperties({
+      free_parses_used: me.account.freeParsesUsed, subscribed: me.account.subscribed,
+      own_key: me.account.hasOwnKey, has_balance: me.account.balanceMicros > 0,
+    });
+  }, [me]);
 
   if (!isLoaded) return <div className="loading" />;
   if (!isSignedIn) return <Welcome signIn={<SignIn routing="hash" appearance={CLERK_LOOK} />} />;
   if (problem) return <div className="gate"><h1>Scratch</h1><p>{problem}</p><UserButton /></div>;
   if (!me) return <div className="loading" />;
 
-  const menu = <span className="account-menu"><Meter me={me} /><UserButton /></span>;
+  const menu = (
+    <span className="account-menu">
+      <Meter me={me} />
+      <UserButton>
+        {openFeedback && (
+          <UserButton.MenuItems>
+            <UserButton.Action label="Feedback" labelIcon={<Icon name="chat" small />} onClick={openFeedback} />
+          </UserButton.MenuItems>
+        )}
+      </UserButton>
+    </span>
+  );
   if (onAccountPage()) return <Account me={me} onChange={setMe} menu={menu} />;
   const billing: Billing | undefined = me.billing ? {
     packs: PACKS.map((cents) => ({ cents, credits: creditsFor(cents, me.pricing) })),

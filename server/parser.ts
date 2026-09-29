@@ -1,10 +1,14 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
+import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { UNIT_TYPES } from '../shared/types.ts';
+import { posthogLog } from './posthog-logs.ts';
+import { posthogClient } from './posthog.ts';
 
-// Created on first real parse, so importing this file never needs a key (offline mode, tests).
+// Created on first real parse, so importing this file never needs an Anthropic key (offline mode, tests).
 let client: Anthropic | null = null;
+type AiContext = { projectId: string; distinctId?: string };
 
 const ParsedUnit = z.object({
   key: z.string().describe('Short unique key within this response, e.g. r1, r2 for roots, u1, u2 for others'),
@@ -91,6 +95,7 @@ export async function parseBlurt(
   roots: { id: string; type: string; label: string }[],
   apiKey?: string, // the writer's own key on the hosted site; otherwise the server's
   onUsage?: (u: Usage) => void, // what the parse cost, for metering the hosted site
+  ai?: AiContext,
 ): Promise<ParsedUnit[]> {
   if (process.env.PARSER === 'offline') {
     // No API call, but a stand-in cost so metering can be tested: roughly a real parse of this length.
@@ -108,8 +113,7 @@ export async function parseBlurt(
   const model = process.env.PARSER_MODEL ?? 'claude-opus-5-5';
   // Low effort: measured on the CAD talk, Claude Opus 5.5 at low matched or beat higher settings in half the time.
   const effort = process.env.PARSER_EFFORT ?? 'low'; // 'none' runs without thinking (Haiku 4.5 has no effort levels)
-  const started = Date.now();
-  const response = await api.beta.messages.parse({
+  const request = {
     model,
     max_tokens: 16000,
     // Refusal fallbacks: a false-positive safety decline retries on another model instead of failing the parse.
@@ -120,16 +124,50 @@ export async function parseBlurt(
       format: betaZodOutputFormat(ParseResult),
     },
     system: SYSTEM,
-    messages: [{ role: 'user', content: context }],
-  });
+    messages: [{ role: 'user' as const, content: context }],
+  };
+  const started = Date.now();
+  posthogLog('ai_parse_started', { model, effort });
+  let response;
+  try { response = await api.beta.messages.parse(request); }
+  catch (e) { trackGeneration(ai, model, started, { error: e }); throw e; }
   // Thinking is billed as output. The JSON itself is roughly its characters / 4, so the rest is reasoning.
   onUsage?.(usageOf(model, response.usage.input_tokens, response.usage.output_tokens));
   const json = Math.round(JSON.stringify(response.parsed_output ?? '').length / 4);
   console.log(`parse: ${((Date.now() - started) / 1000).toFixed(1)}s, ${model} effort ${effort}, `
     + `in ${response.usage.input_tokens}, out ${response.usage.output_tokens} (~${json} answer, ~${Math.max(0, response.usage.output_tokens - json)} thinking)`);
+  posthogLog('ai_parse_completed', {
+    model,
+    effort,
+    duration_ms: Date.now() - started,
+    input_tokens: response.usage.input_tokens,
+    output_tokens: response.usage.output_tokens,
+  });
+  trackGeneration(ai, model, started, { input: response.usage.input_tokens, output: response.usage.output_tokens });
 
   if (response.stop_reason === 'refusal') throw new ParseFailure('The model declined to parse this blurt.');
   if (response.stop_reason === 'max_tokens') throw new ParseFailure('The blurt was too long to parse in one pass. Split it and try again.');
   if (!response.parsed_output) throw new ParseFailure('The parser returned output that did not match the schema.');
   return response.parsed_output.units;
+}
+
+/**
+ * One parse, for PostHog LLM analytics: model, tokens, cost and time, never the blurt or what was cut from it.
+ * Sent by hand because PostHog's Anthropic wrapper covers messages.create, not beta.messages.parse.
+ */
+function trackGeneration(ai: AiContext | undefined, model: string, started: number, r: { input?: number; output?: number; error?: unknown }) {
+  const posthog = posthogClient();
+  if (!posthog) return;
+  const usage = r.input !== undefined && r.output !== undefined ? usageOf(model, r.input, r.output) : undefined;
+  posthog.capture({
+    distinctId: ai?.distinctId ?? 'local',
+    event: '$ai_generation',
+    properties: {
+      $ai_provider: 'anthropic', $ai_model: model, $ai_trace_id: randomUUID(), $ai_latency: (Date.now() - started) / 1000,
+      $ai_session_id: createHash('sha256').update(`${ai?.distinctId ?? 'local'}:${ai?.projectId ?? 'parser'}`).digest('hex'),
+      ...(usage ? { $ai_input_tokens: r.input, $ai_output_tokens: r.output, $ai_total_cost_usd: usage.usd } : {}),
+      ...(r.error ? { $ai_is_error: true, $ai_error: r.error instanceof Error ? r.error.message : String(r.error) } : {}),
+      ...(ai?.distinctId ? {} : { $process_person_profile: false }),
+    },
+  });
 }
