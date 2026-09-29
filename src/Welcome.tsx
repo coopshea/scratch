@@ -3,9 +3,9 @@ import { Icon } from './icons.tsx';
 import { FRAME, STROKE, welcomeRope } from './knot.ts';
 
 /**
- * The signed-out front page. A knotted rope hangs in the middle. Scrolling pulls the paper up under a pinned pencil
- * point, so the knot leaves and a line trails down; then the paper stops and the point deflects round the headline,
- * uncovering it. Then what Scratch does, and sign-in.
+ * The signed-out front page. A knotted rope hangs in the middle. Scrolling pulls the paper up under a pencil point
+ * that rises more slowly, so the knot leaves and a line trails down; then the paper stops and the point deflects round
+ * the headline, uncovering it. Then what Scratch does, and sign-in.
  */
 export function Welcome({ signIn }: { signIn: React.ReactNode }) {
   const rope = useMemo(welcomeRope, []);
@@ -24,8 +24,9 @@ export function Welcome({ signIn }: { signIn: React.ReactNode }) {
     // The drawn path's own length, measured, so no sliver of the hidden part shows at its end.
     const total = pen.current?.getTotalLength() ?? rope.penLength;
     pen.current?.style.setProperty('stroke-dasharray', `${total} ${total}`);
-    // A pencil point pinned in place and the paper pulled up under it: first the paper moves (the knot leaves the top,
-    // a line trails down to the point); then the paper stops and the point moves, round the headline, uncovering it.
+    // A pencil point and the paper pulled up under it: first the paper moves (the knot leaves the top, a line trails down
+    // to the point, which rises to where the headline starts); then the paper stops and the point moves on, round the
+    // headline, uncovering it.
     // Straight from the scroll event, which browsers already pace to the frame rate.
     const update = () => {
       const el = track.current;
@@ -40,9 +41,11 @@ export function Welcome({ signIn }: { signIn: React.ReactNode }) {
       const height = Math.round(window.innerHeight + paperScroll + penScroll + window.innerHeight * 0.25);
       if (el.offsetHeight !== height) el.style.height = `${height}px`;
       const y = Math.max(0, window.scrollY - el.offsetTop);
-      const o = clamp(y / paperScroll) * travel;
+      const p = clamp(y / paperScroll), o = p * travel;
+      // Easing in and out, so the point settles before it moves on round the headline.
+      const tip = rope.exit[1] + (rope.rest - rope.exit[1]) * p * p * (3 - 2 * p);
       paper.current?.setAttribute('transform', `translate(0 ${-o})`);
-      line.current?.setAttribute('y2', String(rope.exit[1] + o));
+      line.current?.setAttribute('y2', String(Math.max(rope.exit[1], tip + o)));
       const drawn = clamp((y - paperScroll) / penScroll) * reach;
       pen.current?.style.setProperty('stroke-dashoffset', String(total - drawn));
       const penY = drawn > rope.beforeDown ? rope.downFrom + (drawn - rope.beforeDown) : 0;
