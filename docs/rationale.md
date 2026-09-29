@@ -14,7 +14,7 @@ Three stages, as tabs, not doors:
 
 1. **Talk.** Blurt freely. A parser cuts the blurt into typed units in Cooper's own words, each with a 3–6 word concept label. Units cluster around claims in a force graph.
 2. **Structure.** The same graph laid over an outline's levels. Dragging a cluster onto a level locks it there. This turns nonlinear thinking into a linear outline.
-3. **Draft.** An outline column beside a plain markdown page, aligned row by row, so there is never a blank page.
+3. **Draft.** An outline column beside the page, aligned section by section, so there is never a blank page. The page is a block editor, like the notes, stored as markdown.
 
 ## How it got here
 
@@ -57,7 +57,7 @@ Every non-claim unit belongs to one claim or is loose. Units are cut, never dele
 
 **7. Local and private.** Cooper's writing lives in `projects/`, which is gitignored. The public repo is code and docs only. The API key is in `.env`, also gitignored.
 
-**8. Drop-in libraries over hand-built primitives.** d3-force for layout, BlockNote for rich-text notes, CodeMirror 6 for the draft, Downshift for the combobox, the official Anthropic SDK for the parser. Point out when an existing tool already does what is asked (Heptabase, Gingko Writer, Obsidian Canvas, and Scrivener each overlap one stage).
+**8. Drop-in libraries over hand-built primitives.** d3-force for layout, BlockNote for rich-text notes and the draft, Downshift for the combobox, the official Anthropic SDK for the parser. Point out when an existing tool already does what is asked (Heptabase, Gingko Writer, Obsidian Canvas, and Scrivener each overlap one stage).
 
 **9. The look: the design system.** Since 2026-09-28 the app follows the Scratch design system (https://claude.ai/artifact/X3VzMr8pquZKpoMbRn42ew; screens at https://claude.ai/artifact/9gVUYbkUAGBKhKj7ZKqt29). The sepia notebook is only its loose inspiration. Its rules: things you can move are white cards with a slight shadow, on a warm grey desk; pages you write on are flat. The writer's words are Newsreader (serif); the interface is Hanken Grotesk; blue pencil means Scratch talking (hints, where a drop lands, focus), never the writer's material. Only questions and objections get their own colour, on the type tag. The stages are a 1 › 2 › 3 rail with the current one filled: a toggle you can flip either way. Tokens live at the top of `src/styles.css`. A copy of the system's files (rules, `tokens.json`, each component's guidelines and preview) is in `docs/design-system/`. Less is more.
 
@@ -87,8 +87,9 @@ Every non-claim unit belongs to one claim or is loose. Units are cut, never dele
 
 ### Draft (page 3)
 - **Starts blank (2026-09-28).** The outline sits at the left with its ideas as tiles you can open (your words) and reorder; the editor on the right has only the dividers and one hint: open an idea on the left, then write. Two other approaches were drawn and set aside: filling each section with the ideas' own spill words as grey scaffolding (worth trying later with a local model, "Jev", to tell which parts are used), and a Notion-style single column where you write under each idea tile (ruled out for now; Cooper wants a designer's view first).
-- **Aligned rows plus cursor follow.** The draft holds `<!--s:lane-->` section markers, rendered as dashed rules across both columns. Each outline section sits level with its text, and whichever side is shorter gets a spacer. The section holding the cursor is highlighted. This comes from the sketch, where the divider under "hook" crosses into the editor.
-- **Anchors are HTML comments too** (`<!--u:id-->`). They render as quiet chips, and exported markdown stays clean.
+- **One editor per section (2026-09-29).** Draft moved from a CodeMirror markdown page to BlockNote, so the draft and the notes share one editor: the same / menu (Scratch's own items first), block handles, code, tables and media, and blocks drag from a note into the draft. The first try put the whole draft in one BlockNote editor with the section dividers as blocks, and the editor kept treating them as content (Backspace merged a section into the one above, handles showed in the gaps). Now each section is its own small editor in a grid row beside its part of the outline, so sections are layout and the columns line up without measuring. Across sections: arrow keys at a section's edge (and Backspace in an empty one) move to the next, undo and redo run through one shared history, and a second Cmd+A selects the whole draft to copy or clear. What's lost is a text selection spanning two sections.
+- **Aligned rows plus cursor follow.** The stored draft holds `<!--s:lane-->` section markers, drawn as dashed rules across both columns. The section holding the cursor is highlighted. This comes from the sketch, where the divider under "hook" crosses into the editor.
+- **Anchors are HTML comments too** (`<!--u:id-->`). They render as quiet chips (select, delete and drag like a word), and exported markdown stays clean. Opening a draft is not an edit: BlockNote writes markdown its own way (`*` bullets), and that alone is never saved.
 - **The writer's placement wins.** Placing an idea in a section, by drag or double-click, moves it there with no type or slot rules. A local keyword match flags ideas mentioned by name but not placed, and offers "move here". A model or small local model for paraphrase detection is a later option (see issues). It should only ever suggest.
 - **No unplaced pile in Draft.** Out-of-bounds material stays in Structure.
 - **Strikethrough on use, highlight on callback, hover to find.** These run off explicit anchors, never inferred links. Loose semantic linking was too fuzzy in Cooper's past tools.
@@ -132,7 +133,7 @@ Motivated reasoning (taking a position, then finding evidence) is allowed becaus
 - **Hidden tabs pause `requestAnimationFrame`.** The preview pane is often in the background. Any layout that only moves on animation frames renders as nothing. Both graphs run a synchronous up-front layout (tick the simulation directly) on first view and on resize.
 - **d3 tick handlers are created once.** They must read geometry from refs, not from closed-over React state, or they keep using the first render's sizes.
 - **React runs layout effects before normal effects.** Anything the first layout effect needs, such as the simulation, must be created in an earlier layout effect.
-- **CodeMirror refuses dispatch inside its measure pass.** Defer with `queueMicrotask`. Block widgets must come from a `StateField`, not a view plugin.
+- **BlockNote, in the draft and notes.** Keyboard plugins registered after BlockNote's own never see arrow keys at a block's edge; register them first (`registerPlugin(p, (p, ps) => [p, ...ps])`). Setting DOM attributes on editor content makes it redraw (and a MutationObserver re-adding them loops); use a decoration. The / menu sizes itself to the nearest ancestor with any `overflow` clipping, `clip` included, so a section's cell must not clip. Loading content must carry `addToHistory: false`, or Cmd+Z empties a section. `trailingBlock: false`, or typing on the last line pushes a new empty one in below.
 - **The overlap resolver respects per-axis pins** (`fx` and `fy`). Page 2 alternates region clamping with overlap passes, then stacks leftovers downward within each region. The generic push can shove nodes out of a level.
 - **Server changes need a restart.** `tsx` is not watching. Vite hot-reloads the client only.
 - **Preview screenshots in the small pane sometimes show a half-painted frame.** Trust DOM measurements over the image.

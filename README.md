@@ -60,8 +60,7 @@ Vitest runs the suite in under a second, and CI runs it with the typecheck on ev
 | App | Vite + React + TypeScript, served by a small Express server that holds the key and writes files |
 | Parser | Anthropic SDK, `claude-opus-5-5` at low effort, structured output via Zod, server-side refusal fallback on. `npm run compare:parse` benchmarks other models and effort levels |
 | Cluster graph | `d3-force`, contained and auto-fitted to the pane; no infinite canvas |
-| Node notes | BlockNote (rich text, images, slash menu) |
-| Draft editor | CodeMirror 6 |
+| Node notes and the draft | BlockNote (rich text, images, slash menu); the draft is one editor per outline section |
 | History | append-only event log, replayed to any moment |
 
 ## Data, one folder per project
