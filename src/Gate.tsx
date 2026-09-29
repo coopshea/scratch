@@ -28,6 +28,15 @@ const CLERK_LOOK = {
 
 const PACKS = [500, 1000, 2000];
 const onAccountPage = () => new URLSearchParams(location.search).has('account');
+const onKeysPage = () => new URLSearchParams(location.search).has('keys');
+
+/** Where writers get their keys, and set the limits that keep a stolen one cheap (see KeysNote). */
+const LINKS = {
+  anthropicKeys: 'https://platform.claude.com/settings/workspaces/default/keys',
+  anthropicLimits: 'https://platform.claude.com/settings/billing',
+  readwise: 'https://readwise.io/access_token',
+};
+const ext = { target: '_blank', rel: 'noreferrer' } as const;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 /** Credits a payment buys: what's left after Stripe's fee, in credits. The balance itself stays in micro-dollars. */
 const creditsFor = (cents: number, p: Me['pricing']) =>
@@ -92,6 +101,7 @@ export function Gate() {
       </UserButton>
     </span>
   );
+  if (onKeysPage()) return <KeysNote menu={menu} />;
   if (onAccountPage()) return <Account me={me} onChange={setMe} menu={menu} />;
   const billing: Billing | undefined = me.billing ? {
     packs: PACKS.map((cents) => ({ cents, credits: creditsFor(cents, me.pricing) })),
@@ -224,8 +234,11 @@ export function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => v
             <button className="btn btn-secondary" type="submit" disabled={!key.trim()}>Save key</button>
           </form>
           <p className="help">
-            When your credits run out, Spill runs on your key and Anthropic bills you. Get one at{' '}
-            <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>. Stored encrypted, never shown again.
+            When your credits run out, Spill runs on your key and Anthropic bills you. Stored encrypted, never shown again.
+          </p>
+          <p className="help">
+            Make a key in the <a href={LINKS.anthropicKeys} {...ext}>Claude Console, under API keys</a>. Give it an expiration date,
+            and set a spend limit under <a href={LINKS.anthropicLimits} {...ext}>Settings → Billing</a>. <a href="?keys">Why?</a>
           </p>
           {errorAt('key')}
         </section>
@@ -252,7 +265,7 @@ export function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => v
             )}
           <p className="help">
             Brings your highlights and notes into your writing. Get a token at{' '}
-            <a href="https://readwise.io/access_token" target="_blank" rel="noreferrer">readwise.io/access_token</a>.
+            <a href={LINKS.readwise} {...ext}>readwise.io/access_token</a>, where you can also revoke it any time. <a href="?keys">Why?</a>
           </p>
           {errorAt('readwise')}
         </section>
@@ -267,6 +280,50 @@ export function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => v
             <button className="btn btn-secondary" onClick={() => billingApi.checkout('donation').catch(fail('donate'))}>Donate ${pricing.donationCents / 100}</button>
           </div>
         )}
+      </main>
+    </div>
+  );
+}
+
+/** Why the account page asks for an expiring key and a spend limit. Linked from the key and Readwise fields. */
+export function KeysNote({ menu }: { menu: React.ReactNode }) {
+  return (
+    <div className="app">
+      <header className="account-bar">
+        <a className="btn btn-quiet btn-sm" href="?account"><Icon name="back" small />Back to your account</a>
+        <span className="spacer" />
+        {menu}
+      </header>
+      <main className="account">
+        <h1>Keeping your keys safe</h1>
+        <p className="say">
+          Scratch is brand new and still in development. I'm making my best effort to secure it, and your keys are stored
+          encrypted and never shown again. Still, two settings on your side mean that if your information is ever stolen,
+          from you or from me, the blast radius stays very small.
+        </p>
+        <section>
+          <span className="field-label">An expiration date on your Anthropic key</span>
+          <p className="say">
+            A key that expires stops working on its own, even if someone copied it. When it does, make a new one and paste it
+            into your account page; it takes a minute. Set the date when you create the key in
+            the <a href={LINKS.anthropicKeys} {...ext}>Claude Console, under API keys</a>.
+          </p>
+        </section>
+        <section>
+          <span className="field-label">A spend limit on your Anthropic account</span>
+          <p className="say">
+            Anthropic stops billing past the limit you set, so a stolen key can't run up a large bill. Set it
+            under <a href={LINKS.anthropicLimits} {...ext}>Settings → Billing</a>, in Spend limits.
+          </p>
+        </section>
+        <section>
+          <span className="field-label">Your Readwise token</span>
+          <p className="say">
+            It lets Scratch read your highlights and notes. You can revoke it at <a href={LINKS.readwise} {...ext}>readwise.io/access_token</a> any
+            time, and make a new one there.
+          </p>
+        </section>
+        <p className="say">Cooper</p>
       </main>
     </div>
   );
