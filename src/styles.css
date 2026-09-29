@@ -444,7 +444,7 @@ select:focus { outline: none; text-decoration: underline; }
 .draft-row.active > .cue-cell { background: var(--pencil-soft); box-shadow: inset 3px 0 0 var(--pencil); }
 .cue-cell h3 { margin: 0 0 2px; font: 600 14px/20px var(--sans); color: var(--ink); }
 .cue-cell h3.stray { color: var(--ink-3); font-style: italic; }
-.draft-row > .page { border-top: 1px dashed var(--line-strong); padding: 10px 0 14px; min-height: 64px; }
+.draft-row > .page { border-top: 1px dashed var(--line-strong); padding: 10px 0 14px; min-height: 64px; overflow: visible; } /* not clip: the / menu sizes itself to its nearest clipping box */
 .draft-row:first-child > .cue-cell, .draft-row:first-child > .page { border-top-color: transparent; }
 .draft-row.filler > * { min-height: 40vh; }
 .section-editor { height: 100%; cursor: text; }

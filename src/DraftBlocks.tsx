@@ -28,8 +28,11 @@ import { TYPE_INK } from './typeStyle.ts';
  * Not here yet: ideas moving to the section their chip lands in, and suggestions.
  */
 
-// No hint on every empty line: a blank draft gets one, on its first line (see .draft-sections.blank).
-const dictionary = { ...en, placeholders: { ...en.placeholders, default: '' } };
+// No hint on every empty line or list item: a blank draft gets one, on its first line (see .draft-sections.blank).
+const dictionary = {
+  ...en,
+  placeholders: { ...en.placeholders, default: '', bulletListItem: '', numberedListItem: '', checkListItem: '', toggleListItem: '' },
+};
 
 /* ---------- one section ---------- */
 
@@ -43,7 +46,7 @@ function textBounds(view: EditorView) {
   return { first: blocks[0] ?? { from: 0, to: 0 }, last: blocks[blocks.length - 1] ?? { from: 0, to: 0 } };
 }
 
-/** Arrow keys at a section's first or last line carry on into the neighbouring section. */
+/** Arrow keys at a section's first or last line carry on into the neighbouring section; so does Backspace in an empty one. */
 const crossSections = (leave: (dir: -1 | 1) => void) => new Plugin({
   props: {
     handleKeyDown(view, e) {
@@ -52,6 +55,13 @@ const crossSections = (leave: (dir: -1 | 1) => void) => new Plugin({
       if (document.querySelector('.bn-suggestion-menu, .bn-grid-suggestion-menu')) return false;
       const { first, last } = textBounds(view);
       const head = view.state.selection.head;
+      // Backspace in an empty section goes up to the one above, like the arrow key.
+      const only = view.state.doc.firstChild?.childCount === 1 ? view.state.doc.firstChild.firstChild : null; // the one block
+      if (e.key === 'Backspace' && only && !only.textContent && only.firstChild?.type.name === 'paragraph' && only.childCount === 1) {
+        e.preventDefault();
+        leave(-1);
+        return true;
+      }
       const down = (e.key === 'ArrowDown' && head >= last.from && view.endOfTextblock('down')) || (e.key === 'ArrowRight' && head === last.to);
       const up = (e.key === 'ArrowUp' && head <= first.to && view.endOfTextblock('up')) || (e.key === 'ArrowLeft' && head === first.from);
       if (!down && !up) return false;
@@ -72,7 +82,9 @@ type SectionProps = {
 };
 
 function SectionEditor({ lane, initial, register, onEdit, onFocus, onLeave }: SectionProps) {
-  const editor = useCreateBlockNote({ schema, uploadFile: (file: File) => api.upload(file), dictionary });
+  // No trailing empty line: BlockNote keeps one under the last block, so typing on the last line pushed a new one in
+  // below and shifted the page. Enter makes a new line.
+  const editor = useCreateBlockNote({ schema, uploadFile: (file: File) => api.upload(file), dictionary, trailingBlock: false });
   const loading = useRef(true);
   const leave = useRef((dir: -1 | 1) => onLeave(lane, dir));
   leave.current = (dir) => onLeave(lane, dir);
