@@ -10,7 +10,11 @@ import { Icon } from './icons.tsx';
 import { LabelInput } from './LabelInput.tsx';
 import { HomeSelect, TypeSelect } from './TypeSelect.tsx';
 
-const dictionary = { ...en, placeholders: { ...en.placeholders, default: '', emptyDocument: '' } };
+// An empty note says it can be written in; an empty line in a longer note only mentions the slash commands.
+const dictionary = {
+  ...en,
+  placeholders: { ...en.placeholders, default: 'Use / for key commands.', emptyDocument: 'Type additional context here, and use / for key commands.' },
+};
 
 function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave: (doc: unknown[]) => void; readOnly: boolean; takeFocus: boolean }) {
   const editor = useCreateBlockNote({
@@ -37,6 +41,7 @@ function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave:
       editor={editor}
       editable={!readOnly}
       slashMenu={false}
+      sideMenu={false}
       theme="light"
       onChange={() => {
         window.clearTimeout(timer.current);
@@ -114,7 +119,7 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
       {unit.type === 'coinage' && (
         <label className="field">
           <span>prior art</span>
-          <input defaultValue={unit.priorArt ?? ''}
+          <input defaultValue={unit.priorArt ?? ''} placeholder="Who else has used this term?"
             onBlur={(e) => { if (e.target.value !== (unit.priorArt ?? '')) onPatch(unit.id, { priorArt: e.target.value }); }} />
         </label>
       )}
