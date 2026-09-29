@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { SideMenuController, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
+import { en } from '@blocknote/core/locales';
 import type { Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { ensureSections, normalizeMarkers } from '../shared/markers.ts';
@@ -16,6 +17,9 @@ import { TYPE_INK } from './typeStyle.ts';
  * Not here yet: ideas moving to the section their chip lands in, suggestions, drag within the outline.
  */
 
+// No hint on every empty line: a blank draft gets one, on its first line (see .draft-blocks.blank).
+const dictionary = { ...en, placeholders: { ...en.placeholders, default: '' } };
+
 type Props = {
   units: Unit[];
   board: Board;
@@ -27,7 +31,7 @@ type Props = {
 };
 
 export function DraftBlocks({ units, board, draft, onDraft, onSelect, onBoard, structures }: Props) {
-  const editor = useCreateBlockNote({ schema, uploadFile: (file: File) => api.upload(file) });
+  const editor = useCreateBlockNote({ schema, uploadFile: (file: File) => api.upload(file), dictionary });
   const colRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const sectionEls = useRef(new Map<string, HTMLElement>());
@@ -35,6 +39,10 @@ export function DraftBlocks({ units, board, draft, onDraft, onSelect, onBoard, s
   const [spacers, setSpacers] = useState<Record<string, number>>({});
   const [colH, setColH] = useState(0);
   const [open, setOpen] = useState<Set<string>>(new Set());
+  // Nothing written yet: the first line says where to start. The first word or block takes it away.
+  const [blank, setBlank] = useState(true);
+  const checkBlank = () => setBlank(editor.document.every((b) => b.type === 'section'
+    || (b.type === 'paragraph' && Array.isArray(b.content) && !b.content.length && !b.children.length)));
   const saved = useRef(draft);
   const saveTimer = useRef<number | undefined>(undefined);
 
@@ -69,6 +77,7 @@ export function DraftBlocks({ units, board, draft, onDraft, onSelect, onBoard, s
     // is not saved. New sections for the outline are.
     if (fresh && next === stored) saved.current = blocksToMarkdown(editor, editor.document);
     else onChange();
+    checkBlank();
     if (fresh) {
       // Start writing in the first section.
       const doc = editor.document, first = doc.findIndex((b) => b.type === 'section');
@@ -85,6 +94,7 @@ export function DraftBlocks({ units, board, draft, onDraft, onSelect, onBoard, s
   useEffect(() => () => { if (saveTimer.current !== undefined) flush(); }, []);
   function onChange() {
     if (loading.current) return;
+    checkBlank();
     const md = blocksToMarkdown(editor, editor.document);
     if (md === saved.current) return;
     saved.current = md;
@@ -219,7 +229,7 @@ export function DraftBlocks({ units, board, draft, onDraft, onSelect, onBoard, s
             </section>
           ))}
         </div>
-        <div className="page draft-blocks" ref={pageRef}>
+        <div className={`page draft-blocks ${blank ? 'blank' : ''}`} ref={pageRef}>
           <ChipLabels.Provider value={labels}>
             <BlockNoteView editor={editor} slashMenu={false} sideMenu={false} theme="light" onChange={onChange}>
               <SideMenuController sideMenu={ScratchSideMenu} />

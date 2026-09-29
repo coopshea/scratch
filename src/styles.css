@@ -448,7 +448,8 @@ select:focus { outline: none; text-decoration: underline; }
 .draft-section { width: 100%; }
 .draft-rule { border-top: 1px dashed var(--line-strong); height: 14px; margin: 0 -100vw 0 -48px; }
 .draft-blocks .bn-block-group > .bn-block-outer:first-child .draft-rule { border-top-color: transparent; }
-.draft-blocks .bn-block-content[data-content-type="paragraph"]:has(.ProseMirror-trailingBreak:only-child):hover::after { content: 'Write here. / for commands.'; font: italic 400 16px/32px var(--sans); color: var(--pencil); }
+/* Only on a blank draft, on the first line (the one after the first divider), where the cursor starts. */
+.draft-blocks.blank .bn-block-group > .bn-block-outer:nth-child(2) .bn-block-content[data-content-type="paragraph"]::after { content: 'Write here. / for commands.'; font: italic 400 16px/32px var(--sans); color: var(--pencil); }
 .ProseMirror-selectednode > .draft-chip, .ProseMirror-selectednode .draft-chip { box-shadow: 0 0 0 2px var(--pencil); }
 .draft-chip { cursor: grab; font: 500 12px/18px var(--sans); color: var(--pencil); background: var(--pencil-soft); border-radius: var(--radius-tag); padding: 1px 6px; }
 .page.past { white-space: pre-wrap; padding: 28px 40px; font: 400 19px/32px var(--serif); color: var(--ink-2); max-width: 760px; }
