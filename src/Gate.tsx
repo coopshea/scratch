@@ -107,9 +107,9 @@ function checkoutFailed(e: unknown) {
   location.href = '/?account';
 }
 
-/** Credits left, always in the top bar; a link to the account page. */
-function Meter({ me }: { me: Me }) {
-  if (me.unlimited) return null;
+/** Credits left, always in the top bar; a link to the account page. An admin is exempt, and still gets the link. */
+export function Meter({ me }: { me: Me }) {
+  if (me.unlimited) return <a className="meter" href="?account" title="Admin: parses use no credits. Your account and billing">Unlimited</a>;
   const free = freeLeft(me), credits = creditsLeft(me);
   const text = credits > 0 ? (free === credits ? `${plural(free, 'free credit')}` : plural(credits, 'credit'))
     : me.account.hasOwnKey ? 'Your key' : 'Out of credits';
@@ -180,6 +180,7 @@ export function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => v
         <section>
           <span className="field-label">Credits</span>
           <span className="credits">{me.unlimited ? 'Unlimited' : plural(creditsLeft(me), 'credit')}</span>
+          {me.unlimited && <p className="help">You're an admin, so parses use no credits. Without that you'd have {plural(creditsLeft(me), 'credit')}.</p>}
           <p className="say">
             Each run of Spill uses about 1 credit; a long spill can use 2 or 3. Scratch runs at cost: credits are priced at what
             the model charges, plus Stripe's card fee ({pricing.fee.percent}% + {pricing.fee.cents}¢ a payment).

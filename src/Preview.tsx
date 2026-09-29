@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Account, type Me } from './Gate.tsx';
+import { Account, Meter, type Me } from './Gate.tsx';
 import { Welcome } from './Welcome.tsx';
 
 /** Local development only: the hosted pages with a stand-in sign-in box and a sample account. */
@@ -10,7 +10,8 @@ const SAMPLE: Me = {
 };
 
 export function Preview({ page }: { page: string }) {
-  const [me, setMe] = useState(SAMPLE);
-  if (page === 'account') return <Account me={me} onChange={setMe} menu={<a className="meter" href="#">39 credits</a>} />;
+  // ?preview=admin: the same account as an admin, exempt from credits.
+  const [me, setMe] = useState<Me>(page === 'admin' ? { ...SAMPLE, unlimited: true } : SAMPLE);
+  if (page === 'account' || page === 'admin') return <Account me={me} onChange={setMe} menu={<Meter me={me} />} />;
   return <Welcome signIn={<div className="preview-signin">Clerk sign-in appears here</div>} />;
 }

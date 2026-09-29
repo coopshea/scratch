@@ -10,7 +10,7 @@ import './posthog.ts';
 // Hosted when a Clerk key is built in; otherwise the local app, no sign-in.
 const clerkKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
 
-// Local development only: ?preview=welcome or ?preview=account shows a hosted page without signing in.
+// Local development only: ?preview=welcome, ?preview=account or ?preview=admin shows a hosted page without signing in.
 const preview = import.meta.env.DEV && !clerkKey ? new URLSearchParams(location.search).get('preview') : null;
 
 createRoot(document.getElementById('root')!).render(clerkKey
