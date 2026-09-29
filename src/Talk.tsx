@@ -72,7 +72,7 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
         <p className="dictation-problem" role="status">
           {dictation.problem === 'blocked'
             ? 'Allow the microphone for this site to dictate.'
-            : <>Dictation doesn't work in this browser. Try <a href="https://wisprflow.ai" target="_blank" rel="noreferrer">Wispr Flow</a>, or Chrome.</>}
+            : <>Dictation doesn't work in this browser. Try Chrome, or <a href="https://wisprflow.ai/r/COOPER4" target="_blank" rel="noreferrer">Wispr Flow</a>, via my referral link.</>}
         </p>
       )}
       {error && outOfCredits && failedBlurtId && (
