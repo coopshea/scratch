@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 64 64" width="64" height="64">
+  <title>Scratch</title>
+  <style>
+    :root { --ink: #1e1c19; --paper: #fbf9f4; --felt: #8a8173; --grip: #f6e4a4; }
+    @media (prefers-color-scheme: dark) {
+      :root { --ink: #ece6da; --paper: #1e1c19; --felt: #cfc7b8; --grip: #875600; }
+    }
+    .line { fill: var(--paper); stroke: var(--ink); stroke-width: 2.6; stroke-linejoin: round; stroke-linecap: round; }
+    .ink  { fill: var(--ink); }
+    * { animation-duration: 7s; animation-iteration-count: infinite; animation-fill-mode: both; }
+
+    /* 1. tip and clink: pivot on the bottom-left corner, land on the lip, bounce twice */
+    .tip { transform-origin: 29px 50px; animation-name: tip; }
+    @keyframes tip {
+      0%, 12% { transform: rotate(0deg); animation-timing-function: cubic-bezier(.55,0,1,.6); }
+      20%     { transform: rotate(-104.6deg); animation-timing-function: ease-out; }
+      23%     { transform: rotate(-95deg); animation-timing-function: ease-in; }
+      26%     { transform: rotate(-104.6deg); animation-timing-function: ease-out; }
+      28%     { transform: rotate(-101deg); animation-timing-function: ease-in; }
+      30%, 100% { transform: rotate(-104.6deg); }
+    }
+    /* the base kicks back as it falls, then rocks to a stop */
+    .roll { animation-name: roll; }
+    @keyframes roll {
+      0%, 12% { transform: translate(0, 0); }
+      20%     { transform: translate(7px, 0); }
+      30%, 100% { transform: translate(10px, 0); animation-timing-function: ease-out; }
+    }
+    /* 2. ink leaves the bottle toward the neck */
+    .drain { transform-origin: 40px 35px; animation-name: drain; }
+    @keyframes drain {
+      0%, 17% { transform: scale(1, 1); opacity: 1; }
+      40%, 100% { transform: scale(.35, 0); opacity: 0; }
+    }
+    .drip { transform-origin: 14px 45px; animation-name: drip; }
+    @keyframes drip {
+      0%, 19%  { transform: scale(0, 0); }
+      22%      { transform: scale(1, 1); }
+      46%      { transform: scale(1, 1); opacity: 1; }
+      56%, 100% { transform: scale(.6, .3); opacity: 0; }
+    }
+    /* 3. the pool spreads out from the mouth, then creeps back under the bottle */
+    .pool { transform-origin: 14px 50.5px; animation-name: pool; }
+    @keyframes pool {
+      0%, 20%  { transform: scale(0, 0); animation-timing-function: cubic-bezier(.2,.7,.3,1); }
+      52%, 100% { transform: scale(1, 1); }
+    }
+    .creep { transform-origin: 22px 51px; animation-name: creep; }
+    @keyframes creep {
+      0%, 30%  { transform: scale(0, 0); animation-timing-function: cubic-bezier(.3,.6,.3,1); }
+      58%, 100% { transform: scale(1, 1); }
+    }
+    .clink { animation-name: clink; }
+    @keyframes clink {
+      0%, 19.5% { opacity: 0; transform: translate(0, 0); }
+      20.5%     { opacity: 1; transform: translate(0, 0); }
+      27%, 100% { opacity: 0; transform: translate(-2px, -2px); }
+    }
+    /* 4. a dry-erase eraser wipes a Z; its swath hides the spill and uncovers the upright bottle */
+    .swath { stroke-dasharray: 1 2; animation-name: swath; animation-timing-function: linear; }
+    @keyframes swath {
+      0%, 62%  { stroke-dashoffset: 1; }
+      88%, 100% { stroke-dashoffset: 0; }
+    }
+    .eraser { animation-name: eraser; animation-timing-function: linear; }
+    @keyframes eraser {
+      0%, 57%  { transform: translate(-22px, 30px) rotate(-8deg); opacity: 0; }
+      58%      { transform: translate(-20px, 29.5px) rotate(-8deg); opacity: 1; }
+      62%      { transform: translate(-6px, 28px) rotate(-8deg); }
+      70.48%   { transform: translate(66px, 22px) rotate(-4deg); }
+      79.54%   { transform: translate(-6px, 50px) rotate(-14deg); }
+      88%      { transform: translate(66px, 46px) rotate(-6deg); opacity: 1; }
+      92%      { transform: translate(84px, 45px) rotate(-6deg); opacity: 1; }
+      93%, 100% { transform: translate(84px, 45px) rotate(-6deg); opacity: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; }
+      .spill { display: none; }
+      .upright { mask: none; }
+    }
+  </style>
+
+  <defs>
+    <path id="bottle" d="M29,50 L51,50 L44,35 L43,35 L43,31 L45,31 L45,27 L35,27 L35,31 L37,31 L37,35 L36,35 Z"/>
+    <path id="fill" d="M31.2,48.6 L48.8,48.6 L45.4,41.4 L34.6,41.4 Z"/>
+    <path id="z" d="M-8,28 L66,22 L-6,50 L72,46" pathLength="1"/>
+    <mask id="wipe" maskUnits="userSpaceOnUse" x="-20" y="-20" width="104" height="104">
+      <rect x="-20" y="-20" width="104" height="104" fill="#fff"/>
+      <use href="#z" xlink:href="#z" class="swath" fill="none" stroke="#000" stroke-width="22"/>
+    </mask>
+    <mask id="reveal" maskUnits="userSpaceOnUse" x="-20" y="-20" width="104" height="104">
+      <use href="#z" xlink:href="#z" class="swath" fill="none" stroke="#fff" stroke-width="22"/>
+    </mask>
+  </defs>
+
+  <!-- the spill -->
+  <g class="spill" mask="url(#wipe)">
+    <g class="pool">
+      <path class="ink" d="M4,51.5 C4,48.8 8.5,47.9 13,48.3 C17.5,47.6 21,48.7 24,48.6 C26,48.6 27,50.8 25,51.8 C23,53.2 17,53 12,53.6 C7,53.9 4,53 4,51.5 Z"/>
+    </g>
+    <g class="creep">
+      <path class="ink" d="M18,50.2 C22,48.4 29,48.2 35,48.6 C39.5,48.9 42.5,49.8 41.8,51.2 C41,52.6 36,53 31,52.7 C26,53.4 20,53.2 18,52 Z"/>
+    </g>
+    <g class="roll">
+      <g class="tip">
+        <use href="#bottle" xlink:href="#bottle" class="line"/>
+        <g class="drain"><use href="#fill" xlink:href="#fill" class="ink"/></g>
+      </g>
+      <g class="clink" fill="none" stroke="var(--ink)" stroke-width="1.4" stroke-linecap="round">
+        <path d="M6,41 L3.5,39.5 M7.5,38 L6.5,35.5 M4.5,45 L2,45"/>
+      </g>
+    </g>
+    <g class="drip"><path class="ink" d="M12.4,44.2 C11.4,46.4 11.6,48.4 12.8,50 L16.2,50 C16.6,48 16.2,46 15.4,44.2 Z"/></g>
+  </g>
+
+  <!-- the original, uncovered by the wipe -->
+  <g class="upright" mask="url(#reveal)">
+    <use href="#bottle" xlink:href="#bottle" class="line"/>
+    <use href="#fill" xlink:href="#fill" class="ink"/>
+  </g>
+
+  <!-- dry-erase eraser -->
+  <g class="eraser">
+    <rect x="-8.5" y="-11" width="17" height="15" rx="3" fill="var(--grip)" stroke="var(--ink)" stroke-width="1.6"/>
+    <rect x="-9.5" y="3" width="19" height="7" rx="1.5" fill="var(--felt)" stroke="var(--ink)" stroke-width="1.6"/>
+    <path d="M-4,-6 L4,-6" stroke="var(--ink)" stroke-width="1.4" stroke-linecap="round"/>
+  </g>
+</svg>

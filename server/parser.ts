@@ -1,6 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
-import { Anthropic as PostHogAnthropic } from '@posthog/ai/anthropic';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { UNIT_TYPES } from '../shared/types.ts';
@@ -8,7 +7,7 @@ import { posthogLog } from './posthog-logs.ts';
 import { posthogClient } from './posthog.ts';
 
 // Created on first real parse, so importing this file never needs an Anthropic key (offline mode, tests).
-let client: Anthropic | PostHogAnthropic | null = null;
+let client: Anthropic | null = null;
 type AiContext = { projectId: string; distinctId?: string };
 
 const ParsedUnit = z.object({
@@ -109,11 +108,7 @@ export async function parseBlurt(
     `<blurt>\n${blurt}\n</blurt>`,
   ].join('\n\n');
 
-  const posthog = posthogClient();
-  const anthropicKey = apiKey ?? process.env.ANTHROPIC_API_KEY;
-  const api = posthog && anthropicKey
-    ? (apiKey ? new PostHogAnthropic({ apiKey, posthog }) : (client ??= new PostHogAnthropic({ apiKey: anthropicKey, posthog })))
-    : (apiKey ? new Anthropic({ apiKey }) : (client ??= new Anthropic())); // ANTHROPIC_API_KEY from .env
+  const api = apiKey ? new Anthropic({ apiKey }) : (client ??= new Anthropic()); // ANTHROPIC_API_KEY from .env
   // Tuning knobs for comparing models (npm run compare:parse); defaults are the shipped settings.
   const model = process.env.PARSER_MODEL ?? 'claude-opus-5-5';
   // Low effort: measured on the CAD talk, Claude Opus 5.5 at low matched or beat higher settings in half the time.
@@ -133,16 +128,9 @@ export async function parseBlurt(
   };
   const started = Date.now();
   posthogLog('ai_parse_started', { model, effort });
-  const response = posthog && anthropicKey
-    ? await (api as PostHogAnthropic).beta.messages.parse({
-      ...request,
-      ...(ai?.distinctId ? { posthogDistinctId: ai.distinctId } : {}),
-      posthogTraceId: randomUUID(),
-      posthogProperties: {
-        $ai_session_id: createHash('sha256').update(`${ai?.distinctId ?? 'local'}:${ai?.projectId ?? 'parser'}`).digest('hex'),
-      },
-    })
-    : await (api as Anthropic).beta.messages.parse(request);
+  let response;
+  try { response = await api.beta.messages.parse(request); }
+  catch (e) { trackGeneration(ai, model, started, { error: e }); throw e; }
   // Thinking is billed as output. The JSON itself is roughly its characters / 4, so the rest is reasoning.
   onUsage?.(usageOf(model, response.usage.input_tokens, response.usage.output_tokens));
   const json = Math.round(JSON.stringify(response.parsed_output ?? '').length / 4);
@@ -155,9 +143,31 @@ export async function parseBlurt(
     input_tokens: response.usage.input_tokens,
     output_tokens: response.usage.output_tokens,
   });
+  trackGeneration(ai, model, started, { input: response.usage.input_tokens, output: response.usage.output_tokens });
 
   if (response.stop_reason === 'refusal') throw new ParseFailure('The model declined to parse this blurt.');
   if (response.stop_reason === 'max_tokens') throw new ParseFailure('The blurt was too long to parse in one pass. Split it and try again.');
   if (!response.parsed_output) throw new ParseFailure('The parser returned output that did not match the schema.');
   return response.parsed_output.units;
+}
+
+/**
+ * One parse, for PostHog LLM analytics: model, tokens, cost and time, never the blurt or what was cut from it.
+ * Sent by hand because PostHog's Anthropic wrapper covers messages.create, not beta.messages.parse.
+ */
+function trackGeneration(ai: AiContext | undefined, model: string, started: number, r: { input?: number; output?: number; error?: unknown }) {
+  const posthog = posthogClient();
+  if (!posthog) return;
+  const usage = r.input !== undefined && r.output !== undefined ? usageOf(model, r.input, r.output) : undefined;
+  posthog.capture({
+    distinctId: ai?.distinctId ?? 'local',
+    event: '$ai_generation',
+    properties: {
+      $ai_provider: 'anthropic', $ai_model: model, $ai_trace_id: randomUUID(), $ai_latency: (Date.now() - started) / 1000,
+      $ai_session_id: createHash('sha256').update(`${ai?.distinctId ?? 'local'}:${ai?.projectId ?? 'parser'}`).digest('hex'),
+      ...(usage ? { $ai_input_tokens: r.input, $ai_output_tokens: r.output, $ai_total_cost_usd: usage.usd } : {}),
+      ...(r.error ? { $ai_is_error: true, $ai_error: r.error instanceof Error ? r.error.message : String(r.error) } : {}),
+      ...(ai?.distinctId ? {} : { $process_person_profile: false }),
+    },
+  });
 }
