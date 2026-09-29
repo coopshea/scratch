@@ -122,6 +122,7 @@ function draw(P: Pt[], L: number[], cut: [number, number][]): string {
  *   headline and down past its right side. `penLength` is its length; `penBottom` how far along it reaches the frame's
  *   bottom edge.
  * - `headline`: the box the headline sits in, tucked into that corner, uncovered top to bottom as the point passes.
+ * - `threadX` and `bend`: where the line runs on down the page, and the radius of its turn off the right edge there.
  */
 export function welcomeRope() {
   const knot = rope(212, 40, 400, FRAME.w / 2);
@@ -143,5 +144,5 @@ export function welcomeRope() {
   const penLength = beforeDown + (4000 - (edge + r2));
   const penBottom = beforeDown + (FRAME.h - (edge + r2));
   const headline = { x: 150, top: edge + 34, size, lineGap };
-  return { knot: draw(pts, L, cut), exit, rest, paperTravel, pen, penLength, penBottom, beforeDown, downFrom: edge + r2, threadX: right, headline };
+  return { knot: draw(pts, L, cut), exit, rest, paperTravel, pen, penLength, penBottom, beforeDown, downFrom: edge + r2, threadX: right, bend: r1, headline };
 }
