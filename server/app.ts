@@ -1,9 +1,14 @@
 import express, { type Express, type NextFunction, type Request, type Response } from 'express';
+import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
 import fs from 'node:fs';
 import path from 'node:path';
-import { describeError, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
+import { checkKeyShape, checkReadwiseShape, FREE_PARSES, MAX_ACCOUNTS, type Account, type Accounts, type Paid } from './accounts.ts';
+import { CREDIT_MICROS, DONATION_CENTS, MAX_CENTS, MIN_CENTS, STRIPE_FEE, type Back, type Billing } from './billing.ts';
+import type { Usage } from './parser.ts';
+import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
 import {
-  appendEvent, DATA_ROOT, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
+  appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
   withLock, writeBoard, writeDraft, writeMeta, writeUnits,
 } from './store.ts';
 import { outlineToStructure, slugify, structureMap, STRUCTURES, type Board, type Lane } from '../shared/structures.ts';
@@ -14,14 +19,140 @@ import { cutLabel, locate, noteBlocks } from './text.ts';
 import { canHold, canHoldUnit, isRoot, settle } from '../shared/clusters.ts';
 import { labelProblem, UNIT_TYPES, type Blurt, type Unit } from '../shared/types.ts';
 
-/** The whole API, without the dev server, so tests can call it directly. */
-export function createApp(): Express {
-  const app = express();
-  app.use(express.json({ limit: '5mb' }));
+/**
+ * The hosted site: who is signed in (Clerk in production, a stand-in in tests) and their account.
+ * Without it the app runs as before: one local writer, the server's own key, no limits.
+ */
+export type Hosted = {
+  userId: (req: Request) => string | null;
+  email: (userId: string) => Promise<string | null>;
+  accounts: Accounts;
+  /** Middleware that reads the session before userId is asked, e.g. clerkMiddleware(). */
+  session?: express.RequestHandler;
+  /** Buying parses through Stripe. Without it, writers bring their own key after the free parses. */
+  billing?: Billing;
+};
 
+// About 5 pages, hosted only. The parser copies every word back, so a longer blurt would outrun one response's
+// output ceiling and fail anyway; it also bounds what one parse costs (roughly 2 to 20 cents).
+export const BLURT_MAX = 14_000;
+const SAVE_MAX = 200_000; // not even saved beyond this
+
+/** Parses on the site's key are charged at Anthropic's price times this. 1: the site runs at cost. */
+export const USAGE_MARKUP = Number(process.env.USAGE_MARKUP || 1);
+
+/** Out of parses. The response carries `buy` so the page can point to the account page. */
+class OutOfParses extends HttpError {
+  constructor(message: string, public buy: boolean) { super(402, message); }
+}
+
+/** The site's owners (ADMIN_EMAILS, comma-separated): no per-writer rate limits, no free-parse quota, no blurt cap. */
+const admins = () => new Set((process.env.ADMIN_EMAILS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
+const isAdmin = (a?: Account) => !!a?.email && admins().has(a.email.toLowerCase());
+
+/** The whole API, without the dev server, so tests can call it directly. */
+export function createApp(hosted?: Hosted): Express {
+  const app = express();
   const wrap = (fn: (req: Request, res: Response) => Promise<unknown> | unknown) =>
     (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).catch(next);
   const slugOf = (req: Request) => String(req.params.slug);
+  const accountOf = (res: Response) => res.locals.account as Account | undefined;
+  const origin = (req: Request) => process.env.PUBLIC_URL?.replace(/\/$/, '') ?? `${req.protocol}://${req.get('host')}`;
+
+  if (hosted?.billing) {
+    // Before the JSON parser and outside sign-in: Stripe calls this, and its signature is checked on the raw body.
+    const billing = hosted.billing;
+    app.post('/stripe/webhook', express.raw({ type: () => true, limit: '1mb' }), wrap(async (req, res) => {
+      await billing.webhook(req.body as Buffer, String(req.header('stripe-signature') ?? ''));
+      res.json({ received: true });
+    }));
+  }
+
+  if (hosted) {
+    app.set('trust proxy', 1); // one proxy in front (Railway), so rate limits see the real client address
+    // CSP is off for now: Clerk, BlockNote and Mantine each need their own allowances. The other headers are on.
+    app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
+    const limit = (windowMs: number, limit: number, message: string, byUser = true) => rateLimit({
+      windowMs, limit, standardHeaders: 'draft-8', legacyHeaders: false, message: { error: message },
+      ...(byUser ? { keyGenerator: (_req: Request, res: Response) => accountOf(res)!.id, skip: (_req: Request, res: Response) => isAdmin(accountOf(res)) } : {}),
+    });
+    // Before sign-in is checked: bounds how hard any one address can hit the server at all.
+    app.use(['/api', '/projects'], limit(60_000, 600, 'Too many requests. Wait a minute.', false));
+    if (hosted.session) app.use(['/api', '/projects'], hosted.session);
+    app.use(['/api', '/projects'], (req: Request, res: Response, next: NextFunction) => {
+      (async () => {
+        const id = hosted.userId(req);
+        if (!id) throw new HttpError(401, 'Sign in to use Scratch');
+        const account = await hosted.accounts.admit(id, () => hosted.email(id));
+        if (!account) throw new HttpError(403, `Scratch is full for now (${MAX_ACCOUNTS} writers). Check back soon.`);
+        res.locals.account = account;
+        return userRoot(id);
+      })().then(
+        (dir) => inSpace(dir, next), // everything after this runs inside the writer's own folder
+        next,
+      );
+    });
+    // Per writer, after sign-in. Parses cost money, so they get the tightest limits.
+    app.use(['/api', '/projects'], limit(60_000, 300, 'Too many requests. Wait a minute.'));
+    app.use(['/api/p/:slug/blurts'], limit(60_000, 6, 'Too many parses in a minute. Wait a moment.'));
+    app.use(['/api/p/:slug/blurts'], limit(24 * 3600_000, 100, 'Daily parse limit reached. Try again tomorrow.'));
+    app.use(['/api/p/:slug/assets'], limit(3600_000, 60, 'Too many uploads this hour.'));
+    app.use(['/api/projects'], limit(3600_000, 60, 'Too many new documents this hour.'));
+  }
+
+  app.use(express.json({ limit: '5mb' }));
+
+  app.get('/api/me', wrap((_req, res) => {
+    const account = accountOf(res);
+    res.json(account ? {
+      hosted: true, account, unlimited: isAdmin(account),
+      billing: !!hosted?.billing,
+      pricing: { freeParses: FREE_PARSES, markup: USAGE_MARKUP, creditMicros: CREDIT_MICROS * USAGE_MARKUP, minCents: MIN_CENTS, maxCents: MAX_CENTS, fee: STRIPE_FEE, donationCents: DONATION_CENTS },
+    } : { hosted: false });
+  }));
+
+  /** Stripe Checkout for a top-up or a monthly subscription for an amount the writer picks, or the fixed donation. */
+  app.post('/api/billing/checkout', wrap(async (req, res) => {
+    const account = accountOf(res);
+    if (!account || !hosted?.billing) throw new HttpError(404, 'Billing is not set up');
+    if (req.body?.what === 'donation') return res.json({ url: await hosted.billing.checkoutUrl(account, origin(req), 'donation', DONATION_CENTS) });
+    const what = req.body?.what === 'subscription' ? 'subscription' : 'topup';
+    const cents = Math.round(Number(req.body?.cents));
+    if (!Number.isFinite(cents) || cents < MIN_CENTS || cents > MAX_CENTS) {
+      throw new HttpError(400, `Pick an amount from $${MIN_CENTS / 100} to $${MAX_CENTS / 100}`);
+    }
+    // Already subscribed: change or cancel on Stripe's billing page, not a second subscription.
+    if (what === 'subscription' && account.subscribed) return res.json({ url: await hosted.billing.portalUrl(account, origin(req)) });
+    // From the out-of-credits notice: come back to the document and cut the spill. Only ids of the shapes we issue,
+    // so the return address can't be pointed anywhere else.
+    const b = req.body?.back;
+    const back: Back | undefined = what === 'topup' && typeof b?.slug === 'string' && typeof b?.blurt === 'string'
+      && /^[a-z0-9][a-z0-9-]{0,63}$/.test(b.slug) && /^[A-Za-z0-9_-]{1,64}$/.test(b.blurt) ? { slug: b.slug, blurt: b.blurt } : undefined;
+    res.json({ url: await hosted.billing.checkoutUrl(account, origin(req), what, cents, back) });
+  }));
+
+  app.post('/api/billing/portal', wrap(async (req, res) => {
+    const account = accountOf(res);
+    if (!account || !hosted?.billing) throw new HttpError(404, 'Billing is not set up');
+    res.json({ url: await hosted.billing.portalUrl(account, origin(req)) });
+  }));
+
+  /** The writer's own Anthropic key, for parses after the free ones. Stored encrypted; only the last 4 characters come back. */
+  app.put('/api/me/key', wrap(async (req, res) => {
+    const account = accountOf(res);
+    if (!account || !hosted) throw new HttpError(404, 'Not available locally; the key lives in .env');
+    const key = String(req.body?.key ?? '').trim();
+    checkKeyShape(key);
+    await hosted.accounts.setKey(account.id, key);
+    res.json(await hosted.accounts.get(account.id));
+  }));
+
+  app.delete('/api/me/key', wrap(async (_req, res) => {
+    const account = accountOf(res);
+    if (!account || !hosted) throw new HttpError(404, 'Not available locally; the key lives in .env');
+    await hosted.accounts.setKey(account.id, null);
+    res.json(await hosted.accounts.get(account.id));
+  }));
 
   app.get('/api/p/:slug', wrap((req, res) => res.json(loadProject(slugOf(req)))));
 
@@ -147,13 +278,46 @@ export function createApp(): Express {
     res.json(lines.map((l) => JSON.parse(l)).filter((e) => e.type !== 'layout.move' && e.type !== 'layout.auto'));
   }));
 
-  async function runParse(slug: string, blurt: Blurt) {
+  /**
+   * Hosted, a parse is paid for by a free parse, the prepaid balance or the writer's own key (accounts.ts).
+   * The balance is charged what the parse cost, after it succeeds; a failed parse gives back a free parse.
+   */
+  async function runParse(slug: string, blurt: Blurt, account?: Account) {
+    let paid: Paid | undefined;
+    if (account && hosted && !isAdmin(account)) {
+      if (blurt.text.length > BLURT_MAX) throw new HttpError(413, "That's longer than one parse can take. It's saved; split it and paste the parts.");
+      const got = await hosted.accounts.takeParse(account.id);
+      if ('denied' in got) {
+        throw new OutOfParses(hosted.billing
+          ? 'Out of parses. Add money or your own Anthropic key on your account page. Your blurt is saved.'
+          : 'Out of parses. Add your own Anthropic key on your account page. Your blurt is saved.', true);
+      }
+      paid = got;
+    }
+    // Tokens the model used are paid for whether or not the parse succeeded; a free parse is given back only when
+    // the model was never reached, so a failing parse can't be repeated for free at the site's expense.
+    let usage: Usage | undefined;
+    const settle = async () => {
+      if (paid?.kind === 'balance' && usage) await hosted!.accounts.charge(account!.id, usage.usd * USAGE_MARKUP * 1e6);
+      if (paid?.kind === 'free' && !usage) await hosted!.accounts.refundParse(account!.id, 'free');
+    };
+    try {
+      const units = await parseInto(slug, blurt, paid?.apiKey, (u) => { usage = u; });
+      await settle();
+      return units;
+    } catch (e) {
+      await settle();
+      throw e;
+    }
+  }
+
+  async function parseInto(slug: string, blurt: Blurt, apiKey?: string, onUsage?: (u: Usage) => void) {
     const before = readUnits(slug);
     const live = before.filter((u) => u.status !== 'cut');
     const vocab = [...new Set(live.map((u) => u.label))];
     const roots = live.filter(isRoot).map((u) => ({ id: u.id, type: u.type, label: u.label }));
 
-    const parsed = await parseBlurt(blurt.text, vocab, roots);
+    const parsed = await parseBlurt(blurt.text, vocab, roots, apiKey, onUsage);
 
     return withLock(slug, () => {
       const units = readUnits(slug);
@@ -204,17 +368,26 @@ export function createApp(): Express {
     });
   }
 
+  const parseStatus = (e: unknown) => e instanceof HttpError ? e.status : e instanceof ParseFailure ? 422 : 502;
+  // Hosted, only messages written for the writer reach the browser; others can carry server paths.
+  const parseError = (e: unknown) => {
+    if (!hosted || e instanceof HttpError || isWriterFacing(e)) return describeError(e);
+    console.error(e);
+    return 'The parse failed. Your blurt is saved; try again.';
+  };
+
   app.post('/api/p/:slug/blurts', wrap(async (req, res) => {
     const slug = slugOf(req);
     const text = String(req.body?.text ?? '');
     if (!text.trim()) throw new HttpError(400, 'Blurt is empty');
+    if (hosted && !isAdmin(accountOf(res)) && text.length > SAVE_MAX) throw new HttpError(413, 'That is too long to save as one blurt. Split it and try again.');
     const blurt = saveBlurt(slug, text);
     appendEvent(slug, 'human', 'blurt.create', { id: blurt.id, text });
     try {
-      const units = await runParse(slug, blurt);
+      const units = await runParse(slug, blurt, accountOf(res));
       res.json({ blurt, units });
     } catch (e) {
-      res.status(e instanceof ParseFailure ? 422 : 502).json({ blurt, units: [], error: describeError(e) });
+      res.status(parseStatus(e)).json({ blurt, units: [], error: parseError(e), ...(e instanceof OutOfParses ? { buy: true } : {}) });
     }
   }));
 
@@ -222,9 +395,9 @@ export function createApp(): Express {
     const slug = slugOf(req);
     const blurt = getBlurt(slug, String(req.params.id));
     try {
-      res.json({ blurt, units: await runParse(slug, blurt) });
+      res.json({ blurt, units: await runParse(slug, blurt, accountOf(res)) });
     } catch (e) {
-      res.status(e instanceof ParseFailure ? 422 : 502).json({ blurt, units: [], error: describeError(e) });
+      res.status(parseStatus(e)).json({ blurt, units: [], error: parseError(e), ...(e instanceof OutOfParses ? { buy: true } : {}) });
     }
   }));
 
@@ -261,27 +434,56 @@ export function createApp(): Express {
     res.json(unit);
   }));
 
-  app.get('/api/readwise/status', wrap(async (_req, res) => res.json(await readwise.check())));
+  // Locally, READWISE_TOKEN from .env. Hosted, only the signed-in writer's own token; never a shared one.
+  const readwiseToken = async (res: Response) => {
+    if (!hosted) return readwise.enabled() ? undefined : null; // undefined: the module reads .env itself
+    const account = accountOf(res);
+    return account ? await hosted.accounts.readwiseOf(account.id) : null;
+  };
+  app.get('/api/readwise/status', wrap(async (_req, res) => {
+    const tok = await readwiseToken(res);
+    res.json(tok === null ? { token: false, search: false, error: hosted ? 'Add your Readwise token on your account page' : 'READWISE_TOKEN is not set in .env' } : await readwise.check(tok));
+  }));
+
+  /** The writer's own Readwise token. Checked with Readwise, then stored encrypted; it never comes back. */
+  app.put('/api/me/readwise', wrap(async (req, res) => {
+    const account = accountOf(res);
+    if (!account || !hosted) throw new HttpError(404, 'Not available locally; the token lives in .env');
+    const tok = String(req.body?.token ?? '').trim();
+    checkReadwiseShape(tok);
+    if (!(await readwise.accepts(tok))) throw new HttpError(400, 'Readwise did not accept that token');
+    await hosted.accounts.setReadwise(account.id, tok);
+    res.json(await hosted.accounts.get(account.id));
+  }));
+
+  app.delete('/api/me/readwise', wrap(async (_req, res) => {
+    const account = accountOf(res);
+    if (!account || !hosted) throw new HttpError(404, 'Not available locally; the token lives in .env');
+    await hosted.accounts.setReadwise(account.id, null);
+    res.json(await hosted.accounts.get(account.id));
+  }));
 
   /** Passages from the writer's own reading that relate to a query. Ones already in the document are left out. */
   app.post('/api/p/:slug/readwise/search', wrap(async (req, res) => {
     const slug = slugOf(req);
-    if (!readwise.enabled()) return res.json({ enabled: false, passages: [] });
+    const tok = await readwiseToken(res);
+    if (tok === null) return res.json({ enabled: false, passages: [] });
     const query = String(req.body?.query ?? '').trim().slice(0, 1000);
     if (!query) throw new HttpError(400, 'Query is empty');
     const have = new Set(readUnits(slug).flatMap((u) => (u.source ? [u.source.id] : [])));
-    const passages = (await readwise.search(query, 12)).filter((p) => !have.has(p.id));
+    const passages = (await readwise.search(query, 12, tok)).filter((p) => !have.has(p.id));
     res.json({ enabled: true, passages });
   }));
 
   /** Bring one passage into the document as evidence. The words are fetched from Readwise here, not taken from the client. */
   app.post('/api/p/:slug/readwise/adopt', wrap(async (req, res) => {
     const slug = slugOf(req);
-    if (!readwise.enabled()) throw new HttpError(400, 'READWISE_TOKEN is not set in .env');
+    const tok = await readwiseToken(res);
+    if (tok === null) throw new HttpError(400, hosted ? 'Add your Readwise token on your account page' : 'READWISE_TOKEN is not set in .env');
     const id = String(req.body?.id ?? '');
     const existing = readUnits(slug).find((u) => u.source?.id === id);
     if (existing) return res.json(existing);
-    const p = await readwise.getPassage(id);
+    const p = await readwise.getPassage(id, tok);
     const unit = await withLock(slug, () => {
       const units = readUnits(slug);
       const home = req.body?.home ? String(req.body.home) : null;
@@ -309,12 +511,26 @@ export function createApp(): Express {
     res.json({ url });
   }));
 
-  app.use('/projects', express.static(DATA_ROOT));
+  // Only pasted images are served, and only the signed-in writer's own.
+  app.get('/projects/:slug/assets/:file', wrap((req, res) => {
+    const file = String(req.params.file);
+    if (!/^[\w.-]+$/.test(file) || file.startsWith('.')) throw new HttpError(400, 'Invalid file');
+    assertSlug(slugOf(req));
+    res.sendFile(path.join(slugOf(req), 'assets', file), {
+      root: root(), dotfiles: 'deny',
+      // An uploaded SVG or HTML file opened directly cannot run script.
+      headers: { 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox" },
+    });
+  }));
 
-  app.use('/api', (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err instanceof HttpError ? err.status : 500;
+  app.use(['/api', '/projects', '/stripe'], (err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    // Our own errors, and library ones that carry a client status (a missing file, a body too large).
+    const own = (err as { status?: unknown }).status;
+    const status = err instanceof HttpError ? err.status : typeof own === 'number' && own >= 400 && own < 500 ? own : 500;
     if (status === 500) console.error(err);
-    res.status(status).json({ error: (err as Error).message ?? 'Server error' });
+    // Hosted, only our own messages reach the browser; others can carry server paths.
+    const message = err instanceof HttpError || !hosted ? (err as Error).message : status === 404 ? 'Not found' : 'Server error';
+    res.status(status).json({ error: message ?? 'Server error' });
   });
 
   return app;

@@ -15,7 +15,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-export type ParseResponse = { blurt: Blurt; units: Unit[]; error?: string };
+export type ParseResponse = { blurt: Blurt; units: Unit[]; error?: string; buy?: boolean };
 
 export const api = {
   load: () => call<Project>(''),
@@ -54,3 +54,15 @@ export const archetypes = {
   },
   remove: async (id: string) => { await fetch(`/api/archetypes/${encodeURIComponent(id)}`, { method: 'DELETE' }); },
 };
+
+/** Hosted only: Stripe's own pages for paying in and for managing a subscription. */
+export const billing = {
+  checkout: (what: 'topup' | 'subscription' | 'donation', cents = 0, back?: { slug: string; blurt: string }) => goTo('/api/billing/checkout', { what, cents, back }),
+  portal: () => goTo('/api/billing/portal'),
+};
+async function goTo(path: string, payload: object = {}) {
+  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || !body.url) throw new Error(body.error ?? 'Could not open billing');
+  location.href = body.url;
+}

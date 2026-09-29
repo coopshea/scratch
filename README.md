@@ -13,6 +13,19 @@ Open http://localhost:5178. Add `?p=<slug>` to switch projects; the default is `
 
 `npm run dev:offline` runs on port 5179 with a sentence-splitting stand-in for the parser, for UI work without API calls.
 
+## Hosting
+
+The hosted site is the same app with sign-in turned on. It turns on when `CLERK_SECRET_KEY` is set; without it, everything below works as a local tool.
+
+- **Sign-in:** Clerk. The server checks the session on every `/api` and `/projects` request.
+- **Accounts:** Postgres, one `accounts` table (`server/accounts.ts`). Only the first `MAX_ACCOUNTS` (50) writers are admitted. Own Anthropic keys are stored encrypted with `KEY_ENCRYPTION_SECRET` and never sent back to the browser. `ADMIN_EMAILS` are exempt from every limit below.
+- **Paying for parses:** the site runs at cost. Each writer gets `FREE_PARSES` (2), then parses draw down a prepaid balance by what they actually cost (tokens at Anthropic's price for the model, times `USAGE_MARKUP`, default 1), then fall back to the writer's own Anthropic key. A parse costs about 2 to 20 cents on `claude-opus-5-5`. Writers see this as credits (one credit is 8¢ of model time, `CREDIT_MICROS`, about one run of Spill), never dollars. Writers add money through Stripe Checkout (`server/billing.ts`) for any amount from $1 to $100, once or monthly, from the account page or from the out-of-credits notice under the spill, which returns to the document and cuts the spill; Stripe's card fee (2.9% + 30¢) comes out of what is credited. A separate $7 "ream of paper" donation adds nothing to the balance. The webhook at `/stripe/webhook` checks Stripe's signature, applies each event once, and gives the event back if applying fails so Stripe's retry lands; monthly payments are credited from each paid invoice. Blurts are capped at about 5 pages (14,000 characters) because the parser copies every word back and a longer blurt would outrun one response's output ceiling.
+- **Writing:** still files, one folder per writer at `$SCRATCH_DATA/u/<clerk user id>/`, on a Railway volume.
+- **Limits:** 600 requests a minute per address, 300 per writer, 6 parses a minute and 100 a day per writer, 60 uploads and 60 new documents an hour.
+- **Readwise:** each writer adds their own token on the account page. It's checked with Readwise, stored encrypted like their Anthropic key, and only ever used for their own highlights; the server's `READWISE_TOKEN` is never used when hosted.
+
+`npm run build` then `npm start` runs the production server. It refuses to start without `CLERK_SECRET_KEY` and `DATABASE_URL`.
+
 ## Keys
 
 Keys live in `.env`, which is gitignored. Start from the template:

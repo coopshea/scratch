@@ -1,0 +1,24 @@
+<!-- @dsCard group="Navigation" height=120 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>StageRail</title>
+<style>
+  body { margin: 0; }
+  .pv { padding: 20px 24px; min-height: 100vh; box-sizing: border-box; }
+  .pv.on-desk { background: var(--desk); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cap { font: 500 11px/14px var(--font-sans); letter-spacing: .04em; color: var(--ink-3); }
+</style>
+</head>
+<body class="s">
+<div class="pv">
+<div class="col" style="gap: 20px">
+  <nav class="rail" aria-label="Stages"><button class="step is-current"><span class="num">1</span>Spill</button><span class="sep"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg></span><button class="step"><span class="num">2</span>Shape</button><span class="sep"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg></span><button class="step"><span class="num">3</span>Draft</button></nav>
+  <nav class="rail" aria-label="Stages"><button class="step"><span class="num">1</span>Spill</button><span class="sep"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg></span><button class="step"><span class="num">2</span>Shape</button><span class="sep"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg></span><button class="step is-current"><span class="num">3</span>Draft</button></nav>
+</div>
+</div>
+</body>
+</html>

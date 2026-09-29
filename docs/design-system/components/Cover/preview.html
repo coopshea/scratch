@@ -1,0 +1,51 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Scratch</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--page); color: var(--ink); font-family: var(--font-serif); overflow: hidden; }
+  .cover { position: relative; height: 288px; overflow: hidden; }
+  .art { position: absolute; top: 0; left: 480px; width: 480px; height: 288px; overflow: hidden; }
+  .art svg { display: block; width: 480px; height: 288px; }
+  .thread { stroke: var(--thread); stroke-width: 14; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+  .tray { fill: var(--desk-2); }
+  .card { fill: var(--card); stroke: var(--line); stroke-width: 1; }
+  .soft { fill: var(--pencil-soft); stroke: var(--pencil-line); stroke-width: 1.5; }
+  .r-card { rx: var(--radius-card); }
+  .r-panel { rx: var(--radius-panel); }
+  .words { position: absolute; left: var(--space-6); bottom: var(--space-6); max-width: 440px; }
+  .name { margin: 0; font-size: 112px; line-height: .92; font-weight: 500; letter-spacing: -0.01em; color: var(--ink); }
+  .tag { margin: var(--space-2) 0 0 4px; font: italic 400 14px/20px var(--font-sans); color: var(--pencil); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      thread (the fat line) · a desk-2 tray 168×104 holding one head card and two pieces · two pencil-soft cells 104×68 and 72×52, each with one card
+  arrangement the tangle at top left narrows to a point and leaves as one straight line down behind the tray: mess in, order out; two dividing cells to the right
+  pattern     one fat thread, 14px, round caps: the welcome page's spline in miniature
+  scales      tray radius-panel, cards radius-card, gutters space-4
+-->
+<path class="thread" d="M40 40 C120 -10 190 90 90 80 S10 20 70 20 S180 60 120 100 S60 120 110 128 L110 300"/>
+<rect class="tray r-panel" x="26" y="152" width="168" height="104" rx="12"/>
+<rect class="card r-card" x="38" y="164" width="144" height="36" rx="6"/>
+<rect class="card r-card" x="48" y="210" width="62" height="26" rx="6"/>
+<rect class="card r-card" x="118" y="210" width="62" height="26" rx="6"/>
+<rect class="soft r-panel" x="232" y="56" width="104" height="68" rx="12"/>
+<rect class="soft r-panel" x="352" y="80" width="72" height="52" rx="12"/>
+<rect class="card r-card" x="248" y="72" width="44" height="16" rx="4"/>
+<rect class="card r-card" x="364" y="96" width="36" height="16" rx="4"/>
+</svg>
+</div>
+<div class="words">
+<p class="name">Scratch</p>
+<p class="tag">Detangle your brain.</p>
+</div>
+</div>
+</body>
+</html>

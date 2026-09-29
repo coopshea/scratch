@@ -1,0 +1,37 @@
+<!-- @dsCard group="Actions" height=190 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Button</title>
+<style>
+  body { margin: 0; }
+  .pv { padding: 20px 24px; min-height: 100vh; box-sizing: border-box; }
+  .pv.on-desk { background: var(--desk); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cap { font: 500 11px/14px var(--font-sans); letter-spacing: .04em; color: var(--ink-3); }
+</style>
+</head>
+<body class="s">
+<div class="pv">
+<div class="row">
+  <button class="btn btn-primary"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="17.5" r="2.5"/><path d="M8.6 8 19.5 18.5M8.6 16 19.5 5.5"/></svg>cut into ideas <span class="kbd">⌘↵</span></button>
+  <button class="btn btn-secondary">Shape these ideas <svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+  <button class="btn btn-quiet"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4.5v10M7.5 10.5l4.5 4.5 4.5-4.5M5 19.5h14"/></svg>Export</button>
+  <button class="btn btn-pencil btn-sm">Connect Readwise</button>
+</div>
+<div class="row" style="margin-top: 6px">
+  <span class="cap" style="width: 196px">primary · one per stage</span><span class="cap" style="width: 180px">secondary · the next stage</span><span class="cap" style="width: 94px">quiet</span><span class="cap">pencil · a nudge</span>
+</div>
+<div class="row" style="margin-top: 22px">
+  <button class="btn btn-primary" disabled><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="17.5" r="2.5"/><path d="M8.6 8 19.5 18.5M8.6 16 19.5 5.5"/></svg>cut into ideas <span class="kbd">⌘↵</span></button>
+  <button class="btn btn-secondary is-focus">Save key</button>
+  <button class="btn btn-secondary btn-sm">Cancel</button>
+</div>
+<div class="row" style="margin-top: 6px">
+  <span class="cap" style="width: 196px">disabled · nothing to cut yet</span><span class="cap" style="width: 96px">keyboard focus</span><span class="cap">small</span>
+</div>
+</div>
+</body>
+</html>

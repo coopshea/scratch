@@ -197,7 +197,7 @@ export function Graph({ units, selectedId, onSelect }: Props) {
           const cls = ['unit', isRoot(u) ? 'is-claim' : '', root || (u.home && liveIds.has(u.home)) ? 'clustered' : 'solo', mini ? 'collapsed' : '',
             u.origin === 'model' ? 'is-model' : '', u.id === selectedId ? 'is-selected' : '', inFocus(u) ? '' : 'dim'].join(' ');
           return (
-            <div key={u.id} className={cls} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}
+            <div key={u.id} className={cls} data-type={u.type} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}
               ref={(el) => { if (el) nodeEls.current.set(u.id, el); else nodeEls.current.delete(u.id); }}
               onPointerDown={(e) => e.stopPropagation()} onClick={() => onSelect(u.id)}>
               {!mini && <>

@@ -1,0 +1,7 @@
+# Never upload local keys or writing to Railway. Production reads only Railway variables.
+.env
+.env.*
+projects/
+scratch/
+node_modules/
+dist/

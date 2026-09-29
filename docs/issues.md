@@ -4,6 +4,22 @@ Open work, newest first. Delete an item when it ships; git history keeps the rec
 
 ## Open
 
+### Words the interface still needs to settle
+**Added:** 2026-09-28
+
+The guidance itself shipped with the design system (one blue hint per empty space, gone once it fills). Still open:
+
+- **Headline for the welcome page:** "Detangle Your Brain" is live. Others considered: "From Tangle to Thread", "Untangle What You Think", "Pull the Thread", "Mess In, Draft Out", "A third hand for your brain".
+- **The lead under it:** "Scratch turns loose thoughts into pieces you can move around, so going from idea to draft is quick." Cooper: better than earlier tries, not great.
+- **Parse button:** "cut into ideas" for now. Money uses credits, never "cut" or "parse".
+- **Credit size:** one credit is 8¢ of model time (about one run of Spill; long spills use 2 or 3), with Stripe's fee priced in, so $5 buys credits, not "$4.55". Explained only on the account page.
+- **Kept for later:** Dump → Sort → Write; Gather → Arrange → Write; Brainstorm → Outline → Write; "blurt" and "word vomit".
+
+### Draft: scaffolding from your own words
+**Added:** 2026-09-28 · **Priority:** later
+
+Pre-fill each empty section with the spill fragments behind its ideas, as grey blocks the writer writes over and that never export. Cooper worries it's too much on screen. Worth another look with a small local model ("Jev") that can tell, as you type, which fragments and ideas you've covered, so they cross off without a paid model call. The existing keyword match already crosses off ideas mentioned by name.
+
 ### Red pen: one review pass over the draft
 **Added:** 2026-09-28 · **Priority:** later, after the core loop feels right
 

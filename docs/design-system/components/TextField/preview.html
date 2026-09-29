@@ -1,0 +1,29 @@
+<!-- @dsCard group="Panels" height=330 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TextField</title>
+<style>
+  body { margin: 0; }
+  .pv { padding: 20px 24px; min-height: 100vh; box-sizing: border-box; }
+  .pv.on-desk { background: var(--desk); }
+  .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+  .cap { font: 500 11px/14px var(--font-sans); letter-spacing: .04em; color: var(--ink-3); }
+</style>
+</head>
+<body class="s">
+<div class="pv">
+<div class="col" style="width: 380px; gap: 22px; align-items: stretch">
+  <div class="field"><label class="field-label" for="k">Your Anthropic key</label>
+    <div class="input-row"><input class="input" id="k" type="password" placeholder="sk-ant-…"><button class="btn btn-secondary">Save key</button></div>
+    <p class="field-help">Used when your credits run out; Anthropic bills you directly.</p></div>
+  <div class="field"><span class="field-label">Readwise</span><span class="field-status"><svg class="i i-sm" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5 10 17.5 19 7"/></svg>Connected</span></div>
+  <div class="field"><label class="field-label" for="a">Amount</label>
+    <div class="input-row"><div class="input-money" style="width: 120px"><span>$</span><input class="input is-invalid" id="a" value="0.50"></div><button class="btn btn-primary" disabled>Add once</button></div>
+    <p class="field-help" style="color: var(--objection)">Enter $1 to $100.</p></div>
+</div>
+</div>
+</body>
+</html>
