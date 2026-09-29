@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { filterSuggestionItems } from '@blocknote/core';
 import { getDefaultReactSlashMenuItems, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
@@ -41,7 +41,6 @@ function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave:
       editor={editor}
       editable={!readOnly}
       slashMenu={false}
-      sideMenu={false}
       theme="light"
       onChange={() => {
         window.clearTimeout(timer.current);
@@ -49,12 +48,12 @@ function NoteEditor({ unit, onSave, readOnly, takeFocus }: { unit: Unit; onSave:
       }}
     >
       <SuggestionMenuController triggerCharacter="/"
-        getItems={async (query) => filterSuggestionItems([...getDefaultReactSlashMenuItems(editor), gapItem(editor)], query)} />
+        getItems={async (query) => filterSuggestionItems([gapItem(editor), ...getDefaultReactSlashMenuItems(editor)], query)} />
     </BlockNoteView>
   );
 }
 
-/** Scratch's own slash item: a gap, `[ ]`, for something to find out later, with the cursor inside it. */
+/** Scratch's own slash items come first in the menu, ahead of BlockNote's. A gap, `[ ]`, for something to find out later, with the cursor inside it. */
 function gapItem(editor: ReturnType<typeof useCreateBlockNote>) {
   return {
     title: 'Gap',
@@ -89,12 +88,28 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
   const children = units.filter((u) => u.home === unit.id && u.status !== 'cut');
   const sameLabel = units.filter((u) => u.id !== unit.id && u.status !== 'cut' && u.label === unit.label);
 
+  // Cutting asks twice, like deleting a document: "cut" turns into "cut?" for a few seconds. It sits beside close.
+  const [confirming, setConfirming] = useState(false);
+  const confirmTimer = useRef<number | undefined>(undefined);
+  useEffect(() => { setConfirming(false); window.clearTimeout(confirmTimer.current); }, [unit.id]);
+  useEffect(() => () => window.clearTimeout(confirmTimer.current), []);
+  const askCut = () => {
+    window.clearTimeout(confirmTimer.current);
+    if (!confirming) { setConfirming(true); confirmTimer.current = window.setTimeout(() => setConfirming(false), 3000); return; }
+    setConfirming(false);
+    onPatch(unit.id, { status: 'cut' });
+  };
+
   return (
     <aside className={`sheet ${readOnly ? 'read-only' : ''}`} onKeyDown={(e) => { if (e.key === 'Escape' && (e.target as HTMLElement).tagName !== 'INPUT') onClose(); }}>
       <header className="sheet-head">
         <TypeSelect value={unit.type} onChange={(type) => onPatch(unit.id, { type })} />
         <span className="spacer" />
-        {!readOnly && <button className="link muted" onClick={() => onPatch(unit.id, { status: 'cut' })}>cut</button>}
+        {!readOnly && (
+          <button className={`link ${confirming ? 'confirm' : 'muted'}`} onClick={askCut} aria-label={confirming ? 'Confirm cut' : 'Cut this idea'}>
+            {confirming ? 'cut?' : 'cut'}
+          </button>
+        )}
         <button className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="close" /></button>
       </header>
 
