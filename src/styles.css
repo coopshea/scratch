@@ -68,7 +68,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn-quiet.btn-sm { padding: 0 8px; }
 .btn:disabled { background: transparent; color: var(--ink-3); border: 1px dashed var(--line-strong); cursor: default; }
 .btn-quiet:disabled { border-color: transparent; }
-.kbd { display: inline-block; font: 500 11px/16px var(--mono); padding: 0 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px;
+.kbd { display: inline-flex; align-items: center; gap: 1px; height: 22px; font: 500 13px/1 var(--sans); padding: 0 6px; border: 1px solid var(--line-strong); border-bottom-width: 2px;
   border-radius: var(--radius-tag); color: var(--ink-2); background: var(--card); }
 .btn-primary .kbd { background: rgba(251, 249, 244, .14); border-color: transparent; color: var(--on-ink); }
 .btn:disabled .kbd { background: transparent; color: var(--ink-3); }

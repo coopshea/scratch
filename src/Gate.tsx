@@ -3,7 +3,7 @@ import { SignIn, useAuth, useUser, UserButton } from '@clerk/react';
 import { App, type Billing } from './App.tsx';
 import { billing as billingApi, slug } from './api.ts';
 import { Icon } from './icons.tsx';
-import { posthog } from './posthog.ts';
+import { openFeedback, posthog } from './posthog.ts';
 import { Welcome } from './Welcome.tsx';
 
 export type Me = {
@@ -80,7 +80,18 @@ export function Gate() {
   if (problem) return <div className="gate"><h1>Scratch</h1><p>{problem}</p><UserButton /></div>;
   if (!me) return <div className="loading" />;
 
-  const menu = <span className="account-menu"><Meter me={me} /><UserButton /></span>;
+  const menu = (
+    <span className="account-menu">
+      <Meter me={me} />
+      <UserButton>
+        {openFeedback && (
+          <UserButton.MenuItems>
+            <UserButton.Action label="Feedback" labelIcon={<Icon name="chat" small />} onClick={openFeedback} />
+          </UserButton.MenuItems>
+        )}
+      </UserButton>
+    </span>
+  );
   if (onAccountPage()) return <Account me={me} onChange={setMe} menu={menu} />;
   const billing: Billing | undefined = me.billing ? {
     packs: PACKS.map((cents) => ({ cents, credits: creditsFor(cents, me.pricing) })),

@@ -25,12 +25,14 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
   const parsedIds = new Set(units.map((u) => u.blurtId));
   const unparsed = blurts.filter((b) => !parsedIds.has(b.id) && b.id !== failedBlurtId);
 
+  const [verb, setVerb] = useState(pick);
+  const cutting = useCutting(busy);
   const dictation = useDictation((heard) => setText((t) => (t && !/\s$/.test(t) ? `${t} ` : t) + heard.trim()));
 
   const submit = async () => {
     dictation.stop();
     if (!text.trim() || busy) return;
-    if (await onBlurt(text)) setText('');
+    if (await onBlurt(text)) { setText(''); setVerb(pick); }
   };
 
   return (
@@ -61,8 +63,8 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
           aria-pressed={dictation.listening}>
           <Icon name="mic" />{dictation.listening ? 'listening… stop' : 'speak'}
         </button>
-        <button className="btn btn-primary" onClick={submit} disabled={busy || !text.trim()}>
-          <Icon name="scissors" />{busy ? 'cutting…' : 'cut into ideas'}{!busy && <span className="kbd">⌘↵</span>}
+        <button className="btn btn-primary" onClick={submit} disabled={busy || !text.trim()} aria-label="Cut into ideas">
+          <Icon name="scissors" />{busy ? cutting : verb}{!busy && <kbd className="kbd">⌘↵</kbd>}
         </button>
       </div>
 
@@ -102,6 +104,29 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
       ))}
     </div>
   );
+}
+
+/** The cut button's words, picked at random each time; the -ing forms turn over while the parser works. */
+const VERBS = [
+  'cut into ideas', 'chop concepts', 'segment insights', 'polish the turd', 'kick the anthill', 'slice and dice',
+  'untangle the yarn', 'herd the cats', 'pan for gold', 'shake the tree', 'sort the junk drawer', 'separate wheat from chaff',
+];
+const GERUNDS = [
+  'cutting…', 'chopping…', 'segmenting…', 'polishing…', 'kicking the anthill…', 'slicing and dicing…',
+  'untangling…', 'herding cats…', 'panning for gold…', 'shaking the tree…', 'rummaging…', 'threshing…',
+];
+const pick = () => VERBS[Math.floor(Math.random() * VERBS.length)];
+
+function useCutting(busy: boolean) {
+  const [word, setWord] = useState(GERUNDS[0]);
+  useEffect(() => {
+    if (!busy) return;
+    const next = () => setWord((w) => { let n = w; while (n === w) n = GERUNDS[Math.floor(Math.random() * GERUNDS.length)]; return n; });
+    next();
+    const t = window.setInterval(next, 2500);
+    return () => window.clearInterval(t);
+  }, [busy]);
+  return word;
 }
 
 type Recognition = {
