@@ -9,7 +9,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import type { Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
-import { normalizeMarkers } from '../shared/markers.ts';
+import { ensureSections, normalizeMarkers } from '../shared/markers.ts';
 import { STRUCTURES, type Board, type Lane, type StructureDef } from '../shared/structures.ts';
 import { api } from './api.ts';
 import { TYPE_INK } from './typeStyle.ts';
@@ -51,25 +51,6 @@ const keepCursorOffMarkers = EditorState.transactionFilter.of((tr) => {
   const pos = down ? (next ?? prev) : (prev ?? next);
   return pos === null ? tr : [tr, { selection: { anchor: pos }, sequential: true }];
 });
-
-/** Every lane of the structure gets a section marker, inserted in outline order before the next lane that has one. */
-function ensureSections(doc: string, laneIds: string[]): string {
-  const lines = doc.split('\n');
-  const markerLine = (id: string) => lines.findIndex((l) => l.trim() === sectionFor(id));
-  if (!lines.some((l) => SECTION.test(l.trim()))) {
-    const body = doc.trim();
-    return `${laneIds.map((id, i) => `${sectionFor(id)}\n${i === 0 && body ? body + '\n' : ''}`).join('\n')}`;
-  }
-  let changed = false;
-  laneIds.forEach((id, i) => {
-    if (markerLine(id) >= 0) return;
-    const nextId = laneIds.slice(i + 1).find((n) => markerLine(n) >= 0);
-    const at = nextId ? markerLine(nextId) : lines.length;
-    lines.splice(at, 0, sectionFor(id), '');
-    changed = true;
-  });
-  return changed ? lines.join('\n') : doc;
-}
 
 type Marker = { lane: string; from: number; to: number };
 
