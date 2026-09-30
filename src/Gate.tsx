@@ -3,6 +3,7 @@ import { SignIn, useAuth, useUser, UserButton } from '@clerk/react';
 import { App, type Billing } from './App.tsx';
 import { billing as billingApi, slug } from './api.ts';
 import { Icon } from './icons.tsx';
+import { Loader, useLoaderHold } from './Loader.tsx';
 import { openFeedback, posthog } from './posthog.ts';
 import { Welcome } from './Welcome.tsx';
 
@@ -51,6 +52,7 @@ export function Gate() {
   const identifiedUserId = useRef<string | null>(null);
   const [me, setMe] = useState<Me | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
+  const hold = useLoaderHold();
 
   useEffect(() => {
     if (!isLoaded || !isUserLoaded) return;
@@ -87,7 +89,7 @@ export function Gate() {
   if (!isLoaded) return <div className="loading" />;
   if (!isSignedIn) return <Welcome signIn={<SignIn routing="hash" appearance={CLERK_LOOK} />} />;
   if (problem) return <div className="gate"><h1>Scratch</h1><p>{problem}</p><UserButton /></div>;
-  if (!me) return <div className="loading" />;
+  if (!me || hold) return <Loader />;
 
   const menu = (
     <span className="account-menu">

@@ -9,6 +9,7 @@ import { EmptyBoard } from './EmptyBoard.tsx';
 import { Draft } from './Draft.tsx';
 import { Graph } from './Graph.tsx';
 import { History } from './History.tsx';
+import { Loader, useLoaderHold } from './Loader.tsx';
 import { Icon } from './icons.tsx';
 import { NoteSheet } from './NoteSheet.tsx';
 import { Structure } from './Structure.tsx';
@@ -43,6 +44,7 @@ function Title({ value, onSave }: { value: string; onSave: (t: string) => void }
  */
 export function App({ account, billing, onSpent }: { account?: React.ReactNode; billing?: Billing; onSpent?: () => void } = {}) {
   const [project, setProject] = useState<Project | null>(null);
+  const hold = useLoaderHold();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -179,7 +181,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
 
   const past = useMemo(() => (history ? replay(history.events, history.count) : null), [history]);
 
-  if (!project) return <div className="loading">{error ?? ''}</div>;
+  if (!project || hold) return !project && error ? <div className="loading">{error}</div> : <Loader />;
   const units = past ? past.units : project.units;
   const blurts = past ? past.blurts : project.blurts;
   const board = past ? past.board : project.board;
