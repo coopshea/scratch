@@ -3,10 +3,11 @@
   Authoring scene for the inkwell logo animation. Not part of the app bundle:
   three.js loads from a CDN here only, and the result is rendered out to video.
   Serve with scripts/logo/serve.py (launch config "logo-scene"), open /scene.html.
-    ?story=spill|roll        spill: tip, slosh, roll toward you, Z wipe.  roll: a seamless loop,
+    ?story=spill|roll|tipped spill: tip, slosh, roll toward you, Z wipe.  roll: a seamless loop,
                              tip, roll 180 degrees round, stand up, and the same again mirrored
     ?cam=fixed|ink|bottle|follow|orbit
     ?t=1.5                   freeze on one moment (seconds)
+    ?story=tipped&cam=pose&at=3&t=3&el=15&line=3&tile   the favicon: framed tight, low camera, heavier outline, rounded tile
     window.exportFrames(name)  POST every frame to /frame, then /encode makes out/<name>.mp4
 -->
 <html>
@@ -31,8 +32,8 @@ const CAM = params.get('cam') || 'fixed';
 
 const INK = '#1e1c19', PAPER = '#fbf9f4', SHADE = '#ece6d9';
 const OUT = 512, RS = 1024, FPS = 30;
-const LINE = 1.7;            // outline width, world units
-const EL = THREE.MathUtils.degToRad(30);
+const LINE = +params.get('line') || 1.7;   // outline width, world units
+const EL = THREE.MathUtils.degToRad(+(params.get('el') ?? 30));   // camera elevation
 
 const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 const smooth = u => (u = clamp(u), u * u * (3 - 2 * u));
@@ -124,6 +125,14 @@ const stories = {
       },
     };
   },
+  // a still, not a moment of the animation: the inkwell on its side with a small spill at its mouth (the favicon)
+  tipped: () => ({
+    dur: 3, loop: false, wipe: null, dry: Infinity, lands: [], pours: [],
+    matrix: () => tipMatrix(THETA),
+    // the puddle, relative to the mouth: [along the bottle, toward the viewer, radius]
+    puddle: [[-4, 3, 3.5], [-9, 5, 3.2], [-14, 4, 2.6], [-2, 9, 3.4], [-8, 11, 3], [3, 12, 3], [8, 11, 2.6], [13, 12, 2.2],
+      [-15, 9, 2], [0, 5, 3.5], [5, 7, 3], [18, 11, 1.4]],
+  }),
   roll: () => {
     // half a loop: tip, roll 180 degrees about the cone's apex, stand back up. The second half is
     // the first turned 180 degrees about the apex, which puts the bottle back where it began.
@@ -201,6 +210,10 @@ function placeDroplets(t) {
 }
 const drops = (() => {
   const out = [], rnd = rng(7);
+  if (S.puddle) {
+    const m = mouthOnGround(0), k = +params.get('pool') || 1;
+    for (const [dx, dz, r] of S.puddle) out.push({ t: 0, x: m.x + dx * k, z: m.z + dz * k, r: r * k });
+  }
   for (const [p0, p1] of S.pours) {
     // the first glug on impact
     const src = mouthOnGround(p0 + 0.01), dir = mouthDir(p0 + 0.01), perp = new THREE.Vector3(-dir.z, 0, dir.x);
@@ -321,6 +334,15 @@ function spring(fn, w, dt = 1 / 240) {
   return t => path[clamp(Math.round(t / dt), 0, path.length - 1)].clone();
 }
 const cameras = {
+  // one moment framed tight (for stills such as the favicon): the bottle and the ink as they are at ?at=
+  pose: () => {
+    const T = +params.get('at') || 0, pts = [];
+    const m = S.matrix(T), pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i += 3) pts.push(new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(m));
+    for (const d of drops) { const r = dropRadius(d, T) * 1.8 * 0.93; if (r > 0) for (const [dx, dz] of [[-r, 0], [r, 0], [0, r], [0, -r]]) pts.push(new THREE.Vector3(d.x + dx, 0, d.z + dz)); }
+    const f = frameFor(pts, 0), h = f.h - 6 + 2 * (+params.get('pad') || 3);   // frameFor already adds the outline
+    return () => ({ target: f.target, az: 0, h });
+  },
   fixed: () => { const f = frameFor(storyPoints, 0); return () => ({ target: f.target, az: 0, h: f.h }); },
   ink: () => { const at = spring(inkCenter, 4); return t => ({ target: at(t), az: 0, h: STORY === 'roll' ? 105 : 58 }); },
   bottle: () => { const at = spring(bottleCenter, 14); return t => ({ target: at(t), az: 0, h: 50 }); },
@@ -342,7 +364,7 @@ const cameras = {
 };
 const camPath = cameras[CAM]();
 function aim(t) {
-  const { target, az, h } = camPath(t);
+  const { target, az } = camPath(t), h = +params.get('h') || camPath(t).h;
   Object.assign(cam, { left: -h / 2, right: h / 2, top: h / 2, bottom: -h / 2 });
   cam.updateProjectionMatrix();
   cam.position.copy(target).add(viewDir(az).multiplyScalar(300));
@@ -426,9 +448,15 @@ function wipe(t) {
 function compose(t) {
   if (S.wipe && t >= S.wipe[1]) { ctx.drawImage(upright, 0, 0); return; }
   render3d(t);
+  ctx.clearRect(0, 0, OUT, OUT);
   ctx.drawImage(renderer.domElement, 0, 0, OUT, OUT);
   clink(t);
   wipe(t);
+  if (params.has('tile')) {   // favicon: round the corners off, transparent outside
+    ctx.globalCompositeOperation = 'destination-in';
+    ctx.beginPath(); ctx.roundRect(0, 0, OUT, OUT, OUT * 14 / 64); ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+  }
 }
 window.compose = compose;
 window.DUR = DUR;
