@@ -1,0 +1,458 @@
+<!doctype html>
+<!--
+  Authoring scene for the inkwell logo animation. Not part of the app bundle:
+  three.js loads from a CDN here only, and the result is rendered out to video.
+  Serve with scripts/logo/serve.py (launch config "logo-scene"), open /scene.html.
+    ?story=spill|roll        spill: tip, slosh, roll toward you, Z wipe.  roll: a seamless loop,
+                             tip, roll 180 degrees round, stand up, and the same again mirrored
+    ?cam=fixed|ink|bottle|follow|orbit
+    ?t=1.5                   freeze on one moment (seconds)
+    window.exportFrames(name)  POST every frame to /frame, then /encode makes out/<name>.mp4
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Inkwell scene</title>
+<style>
+  html, body { margin: 0; background: #eeeae1; min-height: 100vh; display: grid; place-items: center; font: 13px system-ui; color: #5a554c; }
+  canvas#out { width: 384px; height: 384px; border-radius: 18px; }
+</style>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }</script>
+</head>
+<body>
+<div><canvas id="out" width="512" height="512"></canvas><p id="clock"></p></div>
+<script type="module">
+import * as THREE from 'three';
+THREE.ColorManagement.enabled = false;
+
+const params = new URLSearchParams(location.search);
+const STORY = params.get('story') || 'spill';
+const CAM = params.get('cam') || 'fixed';
+
+const INK = '#1e1c19', PAPER = '#fbf9f4', SHADE = '#ece6d9';
+const OUT = 512, RS = 1024, FPS = 30;
+const LINE = 1.7;            // outline width, world units
+const EL = THREE.MathUtils.degToRad(30);
+
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const smooth = u => (u = clamp(u), u * u * (3 - 2 * u));
+const m4 = () => new THREE.Matrix4();
+function rng(seed) { return () => ((seed = (seed * 16807) % 2147483647) / 2147483647); }
+
+// ---- bottle: lathe profile (radius, height) ----
+const R = 11;
+const LIP = [5.2, 22.6];
+const profile = [[0,0],[10.4,0],[11,0.6],[4.6,14.4],[4,15],[3.2,15.3],[3.2,18.6],[5,19],[5.2,19.4],[5.2,22.6],[4.8,23],[3.6,23],[3.6,21],[0,21]]
+  .map(([r, y]) => new THREE.Vector2(r, y));
+const geo = new THREE.LatheGeometry(profile, 96);
+
+const bottleMat = new THREE.ShaderMaterial({
+  uniforms: {
+    ink: { value: new THREE.Color(INK) }, paper: { value: new THREE.Color(PAPER) }, shade: { value: new THREE.Color(SHADE) },
+    L: { value: new THREE.Vector3(-0.5, 0.75, 0.45).normalize() },
+  },
+  vertexShader: `varying vec3 vN; varying vec3 vP;
+    void main(){ vP = position; vN = normalize(mat3(modelMatrix) * normal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform vec3 ink, paper, shade, L; varying vec3 vN; varying vec3 vP;
+    void main(){
+      float r = length(vP.xz);
+      if (vP.y > 20.9 && r < 3.75) { gl_FragColor = vec4(ink, 1.0); return; }   // the mouth
+      vec3 c = dot(normalize(vN), L) > 0.0 ? paper : shade;
+      // a small paper label, so the roll reads
+      float s = atan(vP.x, vP.z) * r;
+      float y = vP.y;
+      if (abs(s) < 3.4 && y > 2.6 && y < 9.4) {
+        bool edge = 3.4 - abs(s) < 0.8 || y < 3.4 || y > 8.6;
+        bool text = abs(y - 6.0) < 0.45 && abs(s) < 1.9;
+        if (edge || text) c = ink;
+      }
+      gl_FragColor = vec4(c, 1.0);
+    }`,
+});
+const hullMat = new THREE.ShaderMaterial({
+  uniforms: { w: { value: LINE }, ink: { value: new THREE.Color(INK) } },
+  side: THREE.BackSide,
+  vertexShader: `uniform float w; void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position + normal * w, 1.0); }`,
+  fragmentShader: `uniform vec3 ink; void main(){ gl_FragColor = vec4(ink, 1.0); }`,
+});
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(PAPER);
+const bottle = new THREE.Group();
+bottle.add(new THREE.Mesh(geo, hullMat), new THREE.Mesh(geo, bottleMat));
+bottle.matrixAutoUpdate = false;
+scene.add(bottle);
+
+// ---- shared motion pieces ----
+const PIVOT = new THREE.Vector3(-R, 0, 0);
+const THETA = Math.PI - Math.atan2(LIP[1], R - LIP[0]); // tipped until the lip and the base edge both touch the ground
+const APEX_H = LIP[1] * R / (R - LIP[0]);           // where the resting cone's surface meets the axis
+const SLANT = Math.hypot(R, APEX_H);
+const tipMatrix = th => m4().makeTranslation(PIVOT.x, PIVOT.y, PIVOT.z)
+  .multiply(m4().makeRotationZ(th)).multiply(m4().makeTranslation(-PIVOT.x, -PIVOT.y, -PIVOT.z));
+const APEX = new THREE.Vector3(0, APEX_H, 0).applyMatrix4(tipMatrix(THETA)); APEX.y = 0;
+const aboutApex = phi => m4().makeTranslation(APEX.x, 0, APEX.z)
+  .multiply(m4().makeRotationY(phi)).multiply(m4().makeTranslation(-APEX.x, 0, -APEX.z));
+
+// a fall: accelerating, then a clink on the lip and a few shrinking bounces
+function fall(t, t0, t1) {
+  if (t < t0) return 0;
+  if (t < t1) return THETA * Math.pow((t - t0) / (t1 - t0), 2.4);
+  const b = t - t1;
+  let s = 0;
+  for (const [d, a] of [[0.2, 7], [0.12, 2.4], [0.07, 0.7]]) {
+    if (b < s + d) return THETA - THREE.MathUtils.degToRad(a) * Math.sin(Math.PI * (b - s) / d);
+    s += d;
+  }
+  return THETA;
+}
+
+// ---- stories ----
+// Each gives: dur, matrix(t), falls (landing times, for the clink and the slosh),
+// pours ([start, end] of ink leaving the mouth), dry (seconds an ink drop lasts), wipe, loop.
+const stories = {
+  spill: () => {
+    const T_TIP = 0.75, T_LAND = 1.25, T_ROLL0 = 1.32, T_ROLL1 = 3.9, ROLL = THREE.MathUtils.degToRad(80);
+    const roll = t => ROLL * (1 - Math.pow(1 - clamp((t - T_ROLL0) / (T_ROLL1 - T_ROLL0)), 2.6));
+    return {
+      dur: 6.6, loop: false, wipe: [4.7, 5.6], dry: Infinity,
+      lands: [T_LAND], pours: [[T_LAND, 3.9]],
+      matrix: t => {
+        const phi = roll(t);
+        return aboutApex(phi).multiply(tipMatrix(fall(t, T_TIP, T_LAND))).multiply(m4().makeRotationY(phi * SLANT / R));
+      },
+    };
+  },
+  roll: () => {
+    // half a loop: tip, roll 180 degrees about the cone's apex, stand back up. The second half is
+    // the first turned 180 degrees about the apex, which puts the bottle back where it began.
+    const H = 2.9, TIP = 0.35, LAND = 0.8, ROLL0 = 0.95, ROLL1 = 2.25, RISE = 2.3, RISE_D = 0.42;
+    const flip = aboutApex(Math.PI);
+    const back = u => { const s = 1.6; u = clamp(u); return 1 + (s + 1) * Math.pow(u - 1, 3) + s * Math.pow(u - 1, 2); };
+    const half = τ => {
+      const phi = Math.PI * smooth((τ - ROLL0) / (ROLL1 - ROLL0));
+      let th = fall(τ, TIP, LAND);
+      if (τ > RISE) th = THETA * (1 - back((τ - RISE) / RISE_D));
+      // 4 spins per half turn (true rolling is 4.02), so the label comes back to the front
+      return aboutApex(phi).multiply(tipMatrix(th)).multiply(m4().makeRotationY(phi * 4));
+    };
+    const lands = [], pours = [];
+    for (let k = -2; k < 2; k++) { lands.push(k * H + LAND); pours.push([k * H + LAND, k * H + ROLL1]); }
+    return {
+      dur: 2 * H, loop: true, wipe: null, dry: 1.9, lands, pours,
+      matrix: t => {
+        const k = Math.floor(t / H), τ = t - k * H;
+        const m = half(τ);
+        return ((k % 2) + 2) % 2 ? flip.clone().multiply(m) : m;
+      },
+    };
+  },
+};
+const S = stories[STORY]();
+const DUR = S.dur;
+
+const local = (x, y, z, t) => new THREE.Vector3(x, y, z).applyMatrix4(S.matrix(t));
+const mouthOnGround = t => { const p = local(0, 22.4, 0, t); p.y = 0; return p; };
+const mouthDir = t => { const a = local(0, 0, 0, t), b = local(0, 23, 0, t); const d = b.sub(a); d.y = 0; return d.normalize(); };
+
+// ---- ink: the slosh inside, droplets it throws, and the drops that pool on the ground ----
+const SLOSH_HZ = 3.3, GRAVITY = 260;
+const slosh = t => {
+  let s = 0;
+  for (const l of S.lands) {
+    const a = t - l;
+    if (a >= 0) s = Math.max(s, Math.exp(-a / 1.0) * Math.pow(Math.max(0, Math.sin(2 * Math.PI * SLOSH_HZ * a + 0.4)), 2));
+  }
+  return s;
+};
+const spurts = (() => {
+  const out = [], rnd = rng(31);
+  for (const l of S.lands) for (let k = 0; k < 6; k++) {
+    const t0 = l + (k + 0.1) / SLOSH_HZ;
+    const amp = Math.exp(-k * 0.45);
+    const n = 2 + Math.round(4 * amp);
+    for (let j = 0; j < n; j++) {
+      const t = t0 + rnd() * 0.06;
+      const from = local(0, 22.6, 0, t);
+      const d = mouthDir(t), turn = (rnd() - 0.5) * 0.9;
+      const dir = new THREE.Vector3(d.x * Math.cos(turn) - d.z * Math.sin(turn), 0, d.x * Math.sin(turn) + d.z * Math.cos(turn));
+      const speed = 8 + (18 + rnd() * 16) * amp, vy = 5 + (9 + rnd() * 9) * amp;
+      const flight = (vy + Math.sqrt(vy * vy + 2 * GRAVITY * from.y)) / GRAVITY;
+      const v = dir.multiplyScalar(speed);
+      out.push({ t, from, v, vy, flight, r: 0.55 + (0.5 + rnd() * 0.7) * amp,
+        land: from.clone().addScaledVector(v, flight).setY(0) });
+    }
+  }
+  return out;
+})();
+const dropletGeo = new THREE.SphereGeometry(1, 14, 10);
+const dropletMat = new THREE.MeshBasicMaterial({ color: INK });
+const droplets = spurts.map(() => scene.add(new THREE.Mesh(dropletGeo, dropletMat)).children.at(-1));
+function placeDroplets(t) {
+  spurts.forEach((s, i) => {
+    const m = droplets[i], a = t - s.t;
+    m.visible = a > 0 && a < s.flight;
+    if (!m.visible) return;
+    m.position.copy(s.from).addScaledVector(s.v, a);
+    m.position.y = s.from.y + s.vy * a - GRAVITY * a * a / 2;
+    m.scale.setScalar(s.r);
+  });
+}
+const drops = (() => {
+  const out = [], rnd = rng(7);
+  for (const [p0, p1] of S.pours) {
+    // the first glug on impact
+    const src = mouthOnGround(p0 + 0.01), dir = mouthDir(p0 + 0.01), perp = new THREE.Vector3(-dir.z, 0, dir.x);
+    for (let k = 0; k < 9; k++) {
+      const p = src.clone().addScaledVector(dir, 1 + rnd() * 6).addScaledVector(perp, (rnd() - 0.5) * 5);
+      out.push({ t: p0 + 0.03 + k * 0.025, x: p.x, z: p.z, r: 1.6 + rnd() * 2.4 });
+    }
+    // then a pour that tapers off as the bottle empties, pulsing with the slosh inside
+    for (let te = p0 + 0.05; te < p1; te += 1 / 60) {
+      const q = Math.exp(-(te - p0) / 1.1) * (0.35 + 0.9 * slosh(te));
+      const p = mouthOnGround(te), d = mouthDir(te);
+      p.addScaledVector(d, 1.2 + rnd() * 3 * q);
+      out.push({ t: te, x: p.x + (rnd() - 0.5) * 1.2, z: p.z + (rnd() - 0.5) * 1.2, r: 1.0 + 2.6 * q });
+    }
+  }
+  // each slosh peak throws droplets out of the mouth; where they land, they splat
+  for (const s of spurts) out.push({ t: s.t + s.flight, x: s.land.x, z: s.land.z, r: 0.8 + s.r * 1.6 });
+  return out;
+})();
+const dropRadius = (d, t) => {
+  const age = t - d.t;
+  if (age <= 0) return 0;
+  const grow = (1 - Math.exp(-age / 0.3)) * (1 + 0.55 * (1 - Math.exp(-age / 1.8)));
+  return d.r * grow * (1 - smooth((age - S.dry) / 0.9));   // the loop's ink dries away
+};
+
+// ground texture, sized to wherever ink lands
+const G = (() => {
+  const b = new THREE.Box2();
+  for (const d of drops) b.expandByPoint(new THREE.Vector2(d.x, d.z));
+  const c = b.getCenter(new THREE.Vector2()), s = b.getSize(new THREE.Vector2());
+  return { x: c.x, z: c.y, size: Math.max(s.x, s.y) + 40, px: 1024 };
+})();
+const field = Object.assign(document.createElement('canvas'), { width: G.px, height: G.px });
+const fctx = field.getContext('2d', { willReadFrequently: true });
+const inkCanvas = Object.assign(document.createElement('canvas'), { width: G.px, height: G.px });
+const ictx = inkCanvas.getContext('2d');
+const inkTex = new THREE.CanvasTexture(inkCanvas);
+inkTex.anisotropy = 8;
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(G.size, G.size),
+  new THREE.MeshBasicMaterial({ map: inkTex, depthWrite: false, depthTest: false }));
+ground.rotation.x = -Math.PI / 2;
+ground.position.set(G.x, 0, G.z);
+ground.renderOrder = -1;
+scene.add(ground);
+
+const toPx = (x, z) => [((x - G.x) / G.size + 0.5) * G.px, ((z - G.z) / G.size + 0.5) * G.px];
+const INK_RGB = [0x1e, 0x1c, 0x19], PAPER_RGB = [0xfb, 0xf9, 0xf4];
+function paintInk(t) {
+  fctx.globalCompositeOperation = 'source-over';
+  fctx.fillStyle = '#000'; fctx.fillRect(0, 0, G.px, G.px);
+  fctx.globalCompositeOperation = 'lighter';
+  const k = G.px / G.size;
+  for (const d of drops) {
+    const r = dropRadius(d, t);
+    if (r <= 0.05) continue;
+    const [cx, cy] = toPx(d.x, d.z), rr = r * 1.8 * k;
+    const g = fctx.createRadialGradient(cx, cy, 0, cx, cy, rr);
+    g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+    fctx.fillStyle = g; fctx.beginPath(); fctx.arc(cx, cy, rr, 0, Math.PI * 2); fctx.fill();
+  }
+  const src = fctx.getImageData(0, 0, G.px, G.px).data;
+  const img = ictx.createImageData(G.px, G.px), o = img.data;
+  for (let i = 0; i < src.length; i += 4) {
+    const v = clamp((src[i] / 255 - 0.42) / 0.08);
+    o[i] = PAPER_RGB[0] + (INK_RGB[0] - PAPER_RGB[0]) * v;
+    o[i + 1] = PAPER_RGB[1] + (INK_RGB[1] - PAPER_RGB[1]) * v;
+    o[i + 2] = PAPER_RGB[2] + (INK_RGB[2] - PAPER_RGB[2]) * v;
+    o[i + 3] = 255;
+  }
+  ictx.putImageData(img, 0, 0);
+  inkTex.needsUpdate = true;
+}
+
+// ---- cameras ----
+// Each mode is a path: where the camera looks (target), its azimuth, and how much it shows (h).
+const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 1000);
+const viewDir = az => new THREE.Vector3(Math.sin(az) * Math.cos(EL), Math.sin(EL), Math.cos(az) * Math.cos(EL));
+const bottleCenter = t => local(0, 9, 0, t);
+function inkCenter(t) {
+  let w = 0; const c = new THREE.Vector3();
+  for (const d of drops) { const r = dropRadius(d, t); if (r > 0) { w += r * r; c.x += d.x * r * r; c.z += d.z * r * r; } }
+  const b = bottleCenter(t);
+  if (!w) return b;
+  c.divideScalar(w);
+  return b.lerp(c, clamp(w / 150));   // eases over from the bottle as the pool builds
+}
+// every point the frame might need to hold
+const storyPoints = (() => {
+  const pts = [], box = [[11, 0, 0], [-11, 0, 0], [0, 0, 11], [0, 0, -11], [5, 23, 0], [-5, 23, 0], [0, 23, 5], [0, 23, -5]];
+  const end = S.wipe ? S.wipe[0] : DUR;
+  for (let t = 0; t < end; t += 0.05) for (const [x, y, z] of box) pts.push(local(x, y, z, t));
+  for (const d of drops) {
+    if (d.t > end || d.t + S.dry + 1 < 0) continue;   // skip ink that is gone before the clip starts
+    const r = d.r * 1.55 * 1.8;
+    for (const [dx, dz] of [[-r, -r], [r, r], [-r, r], [r, -r]]) pts.push(new THREE.Vector3(d.x + dx, 0, d.z + dz));
+  }
+  for (const s of spurts) if (s.t < end) pts.push(s.from, s.land, s.from.clone().add(new THREE.Vector3(0, s.vy * s.vy / (2 * GRAVITY), 0)));
+  return pts;
+})();
+// the frame (target + h) that holds `pts` seen from azimuth az
+function frameFor(pts, az) {
+  cam.position.copy(viewDir(az).multiplyScalar(300)); cam.lookAt(0, 0, 0); cam.updateMatrixWorld();
+  const inv = cam.matrixWorldInverse, b = new THREE.Box2();
+  for (const p of pts) { const v = p.clone().applyMatrix4(inv); b.expandByPoint(new THREE.Vector2(v.x, v.y)); }
+  const c = b.getCenter(new THREE.Vector2()), sz = b.getSize(new THREE.Vector2());
+  const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0), up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+  return { target: right.multiplyScalar(c.x).add(up.multiplyScalar(c.y)), h: Math.max(sz.x, sz.y) + 2 * LINE + 6 };
+}
+function spring(fn, w, dt = 1 / 240) {
+  const path = [], t0 = S.loop ? -DUR : 0;   // a loop warms up one period early, so it starts settled
+  const p = fn(t0), v = new THREE.Vector3();
+  for (let t = t0; t <= DUR + dt; t += dt) {
+    const a = fn(t).sub(p).multiplyScalar(w * w).addScaledVector(v, -2 * w);
+    v.addScaledVector(a, dt); p.addScaledVector(v, dt);
+    if (t >= -dt / 2) path.push(p.clone());
+  }
+  return t => path[clamp(Math.round(t / dt), 0, path.length - 1)].clone();
+}
+const cameras = {
+  fixed: () => { const f = frameFor(storyPoints, 0); return () => ({ target: f.target, az: 0, h: f.h }); },
+  ink: () => { const at = spring(inkCenter, 4); return t => ({ target: at(t), az: 0, h: STORY === 'roll' ? 105 : 58 }); },
+  bottle: () => { const at = spring(bottleCenter, 14); return t => ({ target: at(t), az: 0, h: 50 }); },
+  follow: () => {
+    const roll = STORY === 'roll', at = spring(bottleCenter, roll ? 6 : 3.2);
+    return t => ({ target: at(t), az: 0, h: roll ? 72 : 56 });
+  },
+  orbit: () => {
+    // the loop travels too far to circle as a whole, so it circles the bottle, once per loop
+    if (STORY === 'roll') { const at = spring(bottleCenter, 14); return t => ({ target: at(t), az: 2 * Math.PI * t / DUR, h: 56 }); }
+    // the spill: circle the middle of the action, sweeping a quarter turn
+    const b = new THREE.Box3(); for (const p of storyPoints) b.expandByPoint(p);
+    const c = b.getCenter(new THREE.Vector3()); c.y = 6;
+    const rel = storyPoints.map(p => p.clone().sub(c));
+    let h = 0; for (let a = 0; a < Math.PI * 2; a += Math.PI / 8) h = Math.max(h, frameFor(rel.concat([new THREE.Vector3()]), a).h + 0);
+    const az = STORY === 'roll' ? t => 2 * Math.PI * t / DUR : t => THREE.MathUtils.degToRad(-45 + 90 * smooth(t / DUR));
+    return t => ({ target: c, az: az(t), h });
+  },
+};
+const camPath = cameras[CAM]();
+function aim(t) {
+  const { target, az, h } = camPath(t);
+  Object.assign(cam, { left: -h / 2, right: h / 2, top: h / 2, bottom: -h / 2 });
+  cam.updateProjectionMatrix();
+  cam.position.copy(target).add(viewDir(az).multiplyScalar(300));
+  cam.lookAt(target);
+  cam.updateMatrixWorld();
+}
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+renderer.setPixelRatio(1);
+renderer.setSize(RS, RS, false);
+
+function render3d(t) {
+  bottle.matrix.copy(S.matrix(t));
+  bottle.matrixWorldNeedsUpdate = true;
+  paintInk(t);
+  placeDroplets(t);
+  aim(t);
+  renderer.render(scene, cam);
+}
+
+const out = document.getElementById('out');
+const ctx = out.getContext('2d');
+ctx.imageSmoothingQuality = 'high';
+
+// the clean upright frame the wipe uncovers (identical to frame 0, so the loop is seamless)
+const upright = Object.assign(document.createElement('canvas'), { width: OUT, height: OUT });
+render3d(0);
+upright.getContext('2d').drawImage(renderer.domElement, 0, 0, OUT, OUT);
+
+const toScreen = p => { p = p.clone().project(cam); return [(p.x + 1) / 2 * OUT, (1 - p.y) / 2 * OUT]; };
+// clink: short strokes flicking out from the lip where it strikes, away from the bottle
+function clink(t) {
+  for (const l of S.lands) for (const [t0, size] of [[l, 1], [l + 0.2, 0.55]]) {
+    const a = t - t0;
+    if (a < 0 || a > 0.22) continue;
+    const [x, y] = toScreen(local(-LIP[0], LIP[1], 0, t0));
+    const [cx, cy] = toScreen(local(0, 11, 0, t0));
+    const away = Math.atan2(y - cy, x - cx);
+    const fade = 1 - a / 0.22, grow = 10 + 12 * (a / 0.22);
+    ctx.save();
+    ctx.strokeStyle = INK; ctx.lineCap = 'round'; ctx.lineWidth = 7 * size; ctx.globalAlpha = fade;
+    for (const ang of [away - 0.6, away, away + 0.6]) {
+      const c = Math.cos(ang), s = Math.sin(ang);
+      ctx.beginPath();
+      ctx.moveTo(x + c * grow * size * 1.6, y + s * grow * size * 1.6);
+      ctx.lineTo(x + c * (grow + 16) * size * 1.6, y + s * (grow + 16) * size * 1.6);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+// the wipe: a clear Z-shaped swath, no eraser drawn
+const Z = [[-80, 118], [OUT + 80, 104], [-80, 396], [OUT + 80, 384]];
+const SWATH = 250;
+const mask = Object.assign(document.createElement('canvas'), { width: OUT, height: OUT });
+const mctx = mask.getContext('2d');
+function wipe(t) {
+  if (!S.wipe) return;
+  const p = clamp((t - S.wipe[0]) / (S.wipe[1] - S.wipe[0]));
+  if (p <= 0) return;
+  if (p >= 1) { ctx.drawImage(upright, 0, 0); return; }
+  const seg = Z.slice(1).map((q, i) => Math.hypot(q[0] - Z[i][0], q[1] - Z[i][1]));
+  let left = (p * p * (3 - 2 * p)) * seg.reduce((a, b) => a + b);
+  mctx.clearRect(0, 0, OUT, OUT);
+  mctx.drawImage(upright, 0, 0);
+  mctx.globalCompositeOperation = 'destination-in';
+  mctx.lineWidth = SWATH; mctx.lineCap = 'butt'; mctx.lineJoin = 'miter'; mctx.miterLimit = 10;
+  mctx.beginPath(); mctx.moveTo(...Z[0]);
+  for (let i = 0; i < seg.length && left > 0; i++) {
+    const f = Math.min(1, left / seg[i]);
+    mctx.lineTo(Z[i][0] + (Z[i + 1][0] - Z[i][0]) * f, Z[i][1] + (Z[i + 1][1] - Z[i][1]) * f);
+    left -= seg[i];
+  }
+  mctx.stroke();
+  mctx.globalCompositeOperation = 'source-over';
+  ctx.drawImage(mask, 0, 0);
+}
+
+function compose(t) {
+  if (S.wipe && t >= S.wipe[1]) { ctx.drawImage(upright, 0, 0); return; }
+  render3d(t);
+  ctx.drawImage(renderer.domElement, 0, 0, OUT, OUT);
+  clink(t);
+  wipe(t);
+}
+window.compose = compose;
+window.DUR = DUR;
+window.debug = { storyPoints, drops, spurts, S, camPath, cam, local };
+
+window.exportFrames = async (name = `${STORY}-${CAM}`) => {
+  const n = Math.round(DUR * FPS);
+  for (let i = 0; i < n; i++) {
+    compose(i / FPS);
+    const blob = await new Promise(r => out.toBlob(r, 'image/png'));
+    await fetch(`/frame?name=${name}&i=${i}`, { method: 'POST', body: blob });
+  }
+  await fetch(`/encode?name=${name}`, { method: 'POST' });
+  return n;
+};
+
+const fixed = params.get('t');
+const clock = document.getElementById('clock');
+if (fixed !== null) { compose(+fixed); clock.textContent = `t = ${fixed}s`; }
+else if (!params.has('still')) {
+  const start = performance.now();
+  const tick = now => { const t = ((now - start) / 1000) % DUR; compose(t); clock.textContent = `${STORY} · ${CAM} · ${t.toFixed(2)}s`; requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
+}
+</script>
+</body>
+</html>

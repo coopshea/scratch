@@ -1,0 +1,60 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inkwell variants</title>
+<style>
+  body { margin: 0; padding: 24px 16px; background: #eeeae1; color: #1e1c19; font: 14px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.lede { margin: 0 0 20px; color: #5a554c; }
+  h2 { font-size: 14px; margin: 28px 0 10px; color: #5a554c; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+  figure { margin: 0; }
+  video { width: 100%; aspect-ratio: 1; border-radius: 14px; background: #fbf9f4; display: block; }
+  figcaption { margin-top: 6px; }
+  figcaption b { display: block; }
+  figcaption span { color: #5a554c; font-size: 13px; }
+  .missing { width: 100%; aspect-ratio: 1; border-radius: 14px; background: #f5f1e8; display: grid; place-items: center; color: #8a8173; }
+</style>
+<h1>Inkwell variants</h1>
+<p class="lede">Two stories × five cameras. Each tile loops on its own.</p>
+<div id="root"></div>
+<script>
+const STORIES = {
+  spill: 'Spill: tip, slosh, roll toward you, Z wipe',
+  roll: 'Roll loop: tip, roll half a turn, stand up, repeat mirrored',
+};
+const CAMS = {
+  fixed: 'Fixed: one frame holds everything',
+  ink: 'Centered on the ink as it pools',
+  bottle: 'Locked on the bottle',
+  follow: 'Follows the bottle, loosely',
+  orbit: 'Pans around the scene',
+};
+const root = document.getElementById('root');
+for (const [s, sLabel] of Object.entries(STORIES)) {
+  root.insertAdjacentHTML('beforeend', `<h2>${sLabel}</h2><div class="grid" id="g-${s}"></div>`);
+  for (const [c, cLabel] of Object.entries(CAMS)) {
+    const name = `${s}-${c}`;
+    const fig = document.createElement('figure');
+    fig.innerHTML = `<video src="out/${name}.mp4?${Date.now()}" autoplay loop muted playsinline></video>
+      <figcaption><b>${name}</b><span>${cLabel}</span></figcaption>`;
+    fig.querySelector('video').onerror = e => e.target.replaceWith(Object.assign(document.createElement('div'), { className: 'missing', textContent: 'not rendered' }));
+    document.getElementById(`g-${s}`).append(fig);
+  }
+}
+// render every variant through hidden scene frames: await renderAll()
+window.renderAll = async (only) => {
+  const names = [];
+  for (const s of Object.keys(STORIES)) for (const c of Object.keys(CAMS)) names.push([s, c]);
+  for (const [s, c] of names) {
+    if (only && !only.includes(`${s}-${c}`)) continue;
+    const f = Object.assign(document.createElement('iframe'), { src: `scene.html?story=${s}&cam=${c}&still`, style: 'position:fixed;left:-2000px;width:600px;height:600px' });
+    document.body.append(f);
+    await new Promise(r => f.onload = r);
+    while (!f.contentWindow.exportFrames) await new Promise(r => setTimeout(r, 100));
+    await f.contentWindow.exportFrames(`${s}-${c}`);
+    f.remove();
+  }
+  return 'done';
+};
+</script>

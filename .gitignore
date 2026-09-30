@@ -10,3 +10,5 @@ projects/
 
 # Local measurement output (compare:parse).
 scratch/
+scripts/logo/frames/
+scripts/logo/out/
