@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cutLabel, locate, noteBlocks } from '../server/text.ts';
+import { cutLabel, locate } from '../server/text.ts';
 import { labelProblem } from '../shared/types.ts';
 
 describe('rule: the parser cuts, never rewords (locate)', () => {
@@ -60,12 +60,5 @@ describe('cutLabel: a label cut from a passage, never written', () => {
     expect(cutLabel('It [had 5,000 hours](https://example.com) of testing')).toBe('It had 5,000 hours of testing');
     expect(cutLabel('Engines, turbines, and')).toBe('Engines, turbines, and');
     expect(cutLabel('Engines, turbines,')).toBe('Engines, turbines');
-  });
-});
-
-describe('noteBlocks: the writer’s note, unparsed', () => {
-  it('keeps every word and splits on blank lines', () => {
-    const blocks = noteBlocks('First thought.\n\nSecond thought.\n  \n');
-    expect(blocks.map((b) => b.content[0].text)).toEqual(['First thought.', 'Second thought.']);
   });
 });

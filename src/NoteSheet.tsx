@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { SideMenuController, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { en } from '@blocknote/core/locales';
-import type { Blurt, Unit } from '../shared/types.ts';
+import type { Blurt, SourceRef, Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
-import { api } from './api.ts';
+import { api, type Passage } from './api.ts';
 import { noBlockHints, noSpellcheckInCode, schema, ScratchSideMenu, slashItems } from './blocks.tsx';
 import { Icon } from './icons.tsx';
+import { NeedsReadwise, type ReadwiseOff } from './ReadwiseOff.tsx';
+import { PassageRow, plain } from './Passage.tsx';
 import { LabelInput } from './LabelInput.tsx';
 import { HomeSelect, TypeSelect } from './TypeSelect.tsx';
 
@@ -78,9 +80,14 @@ type Props = {
   version?: string;
   /** Put the cursor in the note on open. Off in Draft, where the writer keeps writing in the page. */
   takeFocus?: boolean;
+  /** Readwise connected: ⌘⇧E looks up related passages, and picking one files it under this idea's thread. */
+  reading?: boolean;
+  /** Readwise not connected: the lookup shows greyed, pointing to where to connect. */
+  readwiseOff?: ReadwiseOff;
+  onAdopt?: (id: string, home: string | null) => Promise<void>;
 };
 
-export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, readOnly = false, version = '', takeFocus = true }: Props) {
+export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, readOnly = false, version = '', takeFocus = true, reading = false, readwiseOff = null, onAdopt }: Props) {
   const roots = units.filter((u) => isRoot(u) && u.status !== 'cut' && u.id !== unit.id);
   const blurt = blurts.find((b) => b.id === unit.blurtId);
   const children = units.filter((u) => u.home === unit.id && u.status !== 'cut');
@@ -122,7 +129,8 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
         </label>
       )}
 
-      {(unit.type === 'evidence' || unit.type === 'artifact') && (
+      {/* A Readwise idea's citation is its highlight below, linked; the check is only for the writer's own evidence. */}
+      {!unit.source && (unit.type === 'evidence' || unit.type === 'artifact') && (
         <label className="field">
           <span>source</span>
           <button className={`link ${unit.verified ? '' : 'muted'}`} onClick={() => onPatch(unit.id, { verified: !unit.verified })}>
@@ -139,8 +147,11 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
         </label>
       )}
 
-      <blockquote className={`original ${unit.flags?.notVerbatim ? 'reworded' : ''}`}
-        title={blurt ? new Date(blurt.createdAt).toLocaleString() : undefined}>{unit.text}</blockquote>
+      {unit.origin !== 'source' && (
+        <blockquote className={`original ${unit.flags?.notVerbatim ? 'reworded' : ''}`}
+          title={blurt ? new Date(blurt.createdAt).toLocaleString() : undefined}>{unit.text}</blockquote>
+      )}
+      {unit.source && <Cited quote={unit.source.quote ?? unit.text} source={unit.source} />}
 
       {children.length > 0 && (
         <nav className="links">
@@ -153,11 +164,103 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
         </nav>
       )}
 
+      {reading && onAdopt && !unit.source && (readwiseOff
+        ? <div className="reading"><NeedsReadwise off={readwiseOff}><span className="link muted"><Icon name="book" small />from your reading</span></NeedsReadwise></div>
+        : <Reading unit={unit} onAdopt={onAdopt} />)}
+
       <div className="note">
         <NoteEditor key={unit.id + version} unit={unit} readOnly={readOnly} takeFocus={takeFocus} onSave={(note) => onPatch(unit.id, { note })} />
       </div>
       </div>
     </aside>
+  );
+}
+
+/** Where a passage lives: the article when Readwise knows it, else the highlight in Readwise. */
+const sourceHref = (s: SourceRef) => s.url || `https://readwise.io/open/${s.id}`;
+
+/** Someone else's words: set apart as a highlight, with where they're from. Never styled like the writer's own. */
+function Cited({ quote, source }: { quote: string; source: SourceRef }) {
+  return (
+    <figure className="cited">
+      <blockquote><mark>{plain(quote)}</mark></blockquote>
+      <figcaption>
+        <a href={sourceHref(source)} target="_blank" rel="noreferrer">{source.title || 'Readwise'}</a>
+        {source.author && <> · {source.author}</>}
+      </figcaption>
+    </figure>
+  );
+}
+
+// Search sparingly: one lookup per idea per visit, kept while the page is open.
+const found = new Map<string, Passage[]>();
+const SHOWN = 5;
+
+/**
+ * Related passages from the writer's own reading, looked up on ⌘⇧E (or the link). Keys 1–5 file one as evidence
+ * under this idea's thread; Escape closes the list and returns to the note. Nothing is looked up until asked.
+ */
+function Reading({ unit, onAdopt }: { unit: Unit; onAdopt: (id: string, home: string | null) => Promise<void> }) {
+  const [passages, setPassages] = useState<Passage[] | null>(null);
+  const [looking, setLooking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const back = useRef<Element | null>(null);
+  useEffect(() => { setPassages(null); setError(null); }, [unit.id]);
+
+  const look = async () => {
+    back.current = document.activeElement;
+    const cached = found.get(unit.id);
+    if (cached) { setPassages(cached); return; }
+    setLooking(true); setError(null);
+    try {
+      const res = await api.readwise.search(`${unit.label}. ${unit.text.slice(0, 300)}`);
+      found.set(unit.id, res.passages);
+      setPassages(res.passages);
+    } catch (e) { setError((e as Error).message); }
+    finally { setLooking(false); }
+  };
+  useEffect(() => { if (passages) list.current?.focus(); }, [passages]);
+  const close = () => { setPassages(null); (back.current as HTMLElement | null)?.focus?.(); };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') { e.preventDefault(); look(); }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
+
+  const adopt = (p: Passage) => {
+    const left = (found.get(unit.id) ?? []).filter((x) => x.id !== p.id);
+    found.set(unit.id, left);
+    setPassages(left);
+    // Filed under the thread: the idea itself when it is a root, else the root it belongs to.
+    onAdopt(p.id, isRoot(unit) ? unit.id : unit.home);
+  };
+
+  const shown = passages?.slice(0, SHOWN) ?? [];
+  return (
+    <div className="reading">
+      {!passages && (
+        <button className="link muted" onClick={look} disabled={looking}>
+          <Icon name="book" small />{looking ? 'looking…' : 'from your reading'}<kbd className="kbd">⌘⇧E</kbd>
+        </button>
+      )}
+      {error && <p className="error">{error}</p>}
+      {passages && (
+        <div className="reading-list" ref={list} tabIndex={-1} aria-label="From your reading"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.stopPropagation(); close(); return; }
+            const n = Number(e.key);
+            if (n >= 1 && n <= shown.length) { e.preventDefault(); adopt(shown[n - 1]); }
+          }}>
+          {!shown.length && <p className="hint">Nothing new in your reading.</p>}
+          {shown.map((p, i) => <PassageRow key={p.id} p={p} n={i + 1} onPick={() => adopt(p)} />)}
+          <button className="link muted" onClick={close}>done</button>
+        </div>
+      )}
+    </div>
   );
 }
 

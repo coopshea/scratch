@@ -10,13 +10,13 @@ import { captureServerError } from './posthog.ts';
 import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
 import {
   appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
-  withLock, writeBoard, writeDraft, writeMeta, writeUnits,
+  listBlurts, withLock, writeBoard, writeDraft, writeMeta, writeUnits,
 } from './store.ts';
 import { outlineToStructure, slugify, structureMap, STRUCTURES, type Board, type Lane } from '../shared/structures.ts';
 import { UNIT_TYPES as TYPES } from '../shared/types.ts';
 import { toMarkdown } from '../shared/export.ts';
 import * as readwise from './readwise.ts';
-import { cutLabel, locate, noteBlocks } from './text.ts';
+import { cutLabel, locate } from './text.ts';
 import { canHold, canHoldUnit, isRoot, settle } from '../shared/clusters.ts';
 import { labelProblem, UNIT_TYPES, type Blurt, type Unit } from '../shared/types.ts';
 
@@ -38,6 +38,24 @@ export type Hosted = {
 // output ceiling and fail anyway; it also bounds what one parse costs (roughly 2 to 20 cents).
 export const BLURT_MAX = 14_000;
 const SAVE_MAX = 200_000; // not even saved beyond this
+/** Spill suggestions: threads searched, passages offered per thread, the most offered, and how close a match must be. */
+const PULL_THREADS = 7, PULL_PER_THREAD = 3, PULL_MAX = 10, PULL_MIN_SCORE = 0.02;
+
+/**
+ * A passage from the writer's reading as one idea: their note leads (their words, so origin human), with the
+ * highlight and where it's from kept beside it. A highlight with no note is the source's words alone (origin source).
+ */
+function fromPassage(p: readwise.Passage, home: string | null): Unit {
+  const text = p.note || p.quote;
+  return {
+    id: newId(), type: 'evidence', label: cutLabel(text), text,
+    blurtId: null, start: -1, end: -1, home, status: 'accepted',
+    // Verified: the passage and its source came straight from Readwise, so the citation is real.
+    origin: p.note ? 'human' : 'source', labeledBy: 'system', verified: true, note: null,
+    source: { kind: 'readwise', id: p.id, quote: p.quote, title: p.title, author: p.author, url: p.url },
+    createdAt: new Date().toISOString(),
+  };
+}
 
 /** Parses on the site's key are charged at Anthropic's price times this. 1: the site runs at cost. */
 export const USAGE_MARKUP = Number(process.env.USAGE_MARKUP || 1);
@@ -465,6 +483,20 @@ export function createApp(hosted?: Hosted): Express {
     res.json(await hosted.accounts.get(account.id));
   }));
 
+  /**
+   * Whether a passage is already in the document: adopted, or its note (or highlight) already spilled here, as when
+   * the writer pasted their Readwise notes in. Those come back as the closest match and are no news.
+   */
+  const alreadyHere = (slug: string) => {
+    const units = readUnits(slug);
+    const ids = new Set(units.flatMap((u) => (u.source ? [u.source.id] : [])));
+    const flat = (t: string) => t.toLowerCase().replace(/\s+/g, ' ').trim();
+    const spilled = flat([...listBlurts(slug).map((b) => b.text), ...units.map((u) => u.text)].join('\n'));
+    // A long enough opening is as good as the whole: notes get light edits after they are pasted.
+    const seen = (t: string) => { const f = flat(t).slice(0, 80); return f.length >= 20 && spilled.includes(f); };
+    return (p: readwise.Passage) => ids.has(p.id) || (!!p.note && seen(p.note)) || seen(p.quote);
+  };
+
   /** Passages from the writer's own reading that relate to a query. Ones already in the document are left out. */
   app.post('/api/p/:slug/readwise/search', wrap(async (req, res) => {
     const slug = slugOf(req);
@@ -472,8 +504,8 @@ export function createApp(hosted?: Hosted): Express {
     if (tok === null) return res.json({ enabled: false, passages: [] });
     const query = String(req.body?.query ?? '').trim().slice(0, 1000);
     if (!query) throw new HttpError(400, 'Query is empty');
-    const have = new Set(readUnits(slug).flatMap((u) => (u.source ? [u.source.id] : [])));
-    const passages = (await readwise.search(query, 12, tok)).filter((p) => !have.has(p.id));
+    const here = alreadyHere(slug);
+    const passages = (await readwise.search(query, 12, tok)).filter((p) => !here(p));
     res.json({ enabled: true, passages });
   }));
 
@@ -490,19 +522,42 @@ export function createApp(hosted?: Hosted): Express {
       const units = readUnits(slug);
       const home = req.body?.home ? String(req.body.home) : null;
       if (home && !units.some((u) => u.id === home && isRoot(u))) throw new HttpError(400, 'A piece can only go under a claim or question that belongs to nothing');
-      const u: Unit = {
-        id: newId(), type: 'evidence', label: cutLabel(p.quote), text: p.quote,
-        blurtId: null, start: -1, end: -1, home, status: 'accepted',
-        origin: 'source', labeledBy: 'system', verified: false,
-        note: p.note ? noteBlocks(p.note) : null,
-        source: { kind: 'readwise', id: p.id, title: p.title, author: p.author, url: p.url },
-        createdAt: new Date().toISOString(),
-      };
+      const u = fromPassage(p, home);
       writeUnits(slug, [...units, u]);
       appendEvent(slug, 'human', 'source.adopt', { unit: u });
       return u;
     });
     res.json(unit);
+  }));
+
+  /**
+   * Spill: suggestions from the writer's own reading, one list per thread. Each thread (root) is searched on its own,
+   * and only passages Readwise matches both by meaning and by words are offered. Nothing is added here: the writer
+   * picks, and each pick goes through adopt, under the thread that found it.
+   */
+  app.post('/api/p/:slug/readwise/related', wrap(async (req, res) => {
+    const slug = slugOf(req);
+    const tok = await readwiseToken(res);
+    if (tok === null) throw new HttpError(400, hosted ? 'Add your Readwise token on your account page' : 'READWISE_TOKEN is not set in .env');
+    const live = readUnits(slug).filter((u) => u.status !== 'cut');
+    const roots = live.filter(isRoot).slice(0, PULL_THREADS);
+    const queries = roots.length
+      ? roots.map((r) => ({ home: r.id as string | null, q: `${r.label}. ${r.text.slice(0, 300)}` }))
+      : [{ home: null, q: readMeta(slug).title }];
+    const here = alreadyHere(slug);
+    const have = new Set<string>();
+    const lists = await Promise.all(queries.map(({ q }) => readwise.search(q, 8, tok).catch(() => [])));
+    // Readwise fuses a meaning search and a word search; a passage near the top of both scores about 1/30,
+    // one found by only one of them about 1/60. Only the first kind is worth offering.
+    const suggestions: { home: string | null; passage: readwise.Passage }[] = [];
+    lists.forEach((l, i) => {
+      for (const p of l.filter((x) => (x.score ?? 0) >= PULL_MIN_SCORE && !here(x)).slice(0, PULL_PER_THREAD)) {
+        if (have.has(p.id)) continue;
+        have.add(p.id);
+        suggestions.push({ home: queries[i].home, passage: p });
+      }
+    });
+    res.json({ suggestions: suggestions.slice(0, PULL_MAX) });
   }));
 
   app.post('/api/p/:slug/assets', express.raw({ type: () => true, limit: '25mb' }), wrap((req, res) => {

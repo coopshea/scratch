@@ -15,6 +15,7 @@ import { NoteSheet } from './NoteSheet.tsx';
 import { Structure } from './Structure.tsx';
 import { Talk } from './Talk.tsx';
 import { posthog } from './posthog.ts';
+import type { ReadwiseOff } from './ReadwiseOff.tsx';
 
 type Stage = 'talk' | 'structure' | 'draft';
 const STAGES: Stage[] = ['talk', 'structure', 'draft'];
@@ -60,6 +61,13 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
   const [outlinesLoaded, setOutlinesLoaded] = useState(false);
   useEffect(() => { archetypes.list().then(setCustom).catch(() => undefined).finally(() => setOutlinesLoaded(true)); }, []);
   const [copied, setCopied] = useState(false);
+  // Readwise connected: Spill offers a pull from reading, and a note can look up related passages. Not connected: those
+  // controls show greyed, pointing to where to connect (the account page hosted, .env locally).
+  const [reading, setReading] = useState<boolean | null>(null);
+  useEffect(() => { api.readwise.status().then((s) => setReading(s.token && s.search)).catch(() => setReading(false)); }, []);
+  const readwiseOff: ReadwiseOff = reading !== false ? null : account
+    ? { href: '?account#readwise', where: 'Connect it on your account page.' }
+    : { href: 'https://readwise.io/access_token', where: 'Put your token in .env as READWISE_TOKEN.' };
 
   const copyExport = async () => {
     try {
@@ -136,6 +144,15 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
     finally { setBusy(false); }
   };
 
+  /** Add a passage from the writer's reading as an idea, under a thread (or loose). */
+  const onAdopt = async (id: string, home: string | null) => {
+    try {
+      const u = await api.readwise.adopt(id, home);
+      setUnits((us) => (us.some((x) => x.id === u.id) ? us : [...us, u]));
+      posthog?.capture('reading_adopted');
+    } catch (e) { setError((e as Error).message); }
+  };
+
   const onPatch = async (id: string, patch: Partial<Unit>) => {
     if (history) return;
     const prev = project?.units;
@@ -190,6 +207,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
 
   const sheet = selected && (
     <NoteSheet unit={selected} units={units} blurts={blurts} onPatch={onPatch} readOnly={!!history} takeFocus={stage !== 'draft'}
+      reading={!history && reading !== null} readwiseOff={readwiseOff} onAdopt={onAdopt}
       version={history ? String(history.count) : ''} onClose={() => setSelectedId(null)} onFocus={setSelectedId} />
   );
 
@@ -201,7 +219,8 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
           ? <History events={history.events} count={history.count} onCount={(count) => setHistory({ ...history, count })}
               units={past.units} selectedId={selectedId} onSelect={setSelectedId} />
           : <Talk units={units} blurts={blurts} busy={busy} error={error} failedBlurtId={failedBlurtId}
-              outOfCredits={outOfCredits} billing={billing} onBlurt={onBlurt} onReparse={onReparse} sheetOpen={!!selected} />}
+              outOfCredits={outOfCredits} billing={billing} onBlurt={onBlurt} onReparse={onReparse} sheetOpen={!!selected}
+              onAdopt={reading !== null && units.some((u) => u.status !== 'cut') ? onAdopt : undefined} readwiseOff={readwiseOff} />}
         <section className="canvas">
           {units.some((u) => u.status !== 'cut')
             ? <>

@@ -11,7 +11,7 @@ The guidance itself shipped with the design system (one blue hint per empty spac
 
 - **Headline for the welcome page:** "Detangle Your Brain" is live. Others considered: "From Tangle to Thread", "Untangle What You Think", "Pull the Thread", "Mess In, Draft Out", "A third hand for your brain".
 - **The lead under it:** "Scratch turns loose thoughts into pieces you can move around, so going from idea to draft is quick." Cooper: better than earlier tries, not great.
-- **Parse button:** "cut into ideas" for now. Money uses credits, never "cut" or "parse".
+- **Parse button:** "Parse writing" at rest (plain, not loved); the playful words (rummaging…, panning for gold…) only turn over while it works. Money uses credits, never "cut" or "parse".
 - **Credit size:** one credit is 8¢ of model time (about one run of Spill; long spills use 2 or 3), with Stripe's fee priced in, so $5 buys credits, not "$4.55". Explained only on the account page.
 - **Kept for later:** Dump → Sort → Write; Gather → Arrange → Write; Brainstorm → Outline → Write; "blurt" and "word vomit".
 
@@ -50,12 +50,14 @@ Cooper reads and annotates in Readwise. A highlight is the source's words, and a
 - **Search sparingly.** Search only when the title changes or a new claim appears, and cache results. Readwise publishes no rate limit for search. Export is 20/min, and one call covers a whole library.
 - **Re-pull is incremental.** Keep a map from highlight id to unit id, so a re-pull adds only new highlights. A note edited in Readwise after import flags the unit and never overwrites it. A deletion in Readwise flags the unit and never removes it.
 
-**Status (2026-09-28):** The server side is built: `server/readwise.ts`, the `/readwise/status`, `/search` and `/adopt` endpoints, and `npm run check:readwise`. **Parked:** the suggestion line, per-claim sources, and the Draft reading tray. The likely first UI is pulling annotations into Talk as blurts. The endpoints are kept. Labels cut from the first words of a highlight are weak; consider the parser's labeler.
+**Status (2026-09-30):** Built. Spill has "pull relevant from Readwise" once something is parsed: each thread (root) is searched on its own, and only passages Readwise ranks near the top by both meaning and words (fused score ≥ 0.02) are offered, at most 3 a thread and 10 in all, listed under the thread that found them. Nothing comes in until the writer picks one (click or 1–9); Cooper asked for this after the unreviewed pull brought in random material. With an idea open in any stage, ⌘⇧E lists 5 related passages; 1–5 files one under that idea's thread. A passage comes in as one idea: the writer's note is its text (their words, where their writing goes), the highlight is `source.quote`, shown below as a yellow highlight so it never reads as theirs, with its title linked under it. There is no "checked" row for these: the linked highlight is the citation. Nothing is parsed, so pulling costs no credits. Without a token the controls show greyed, and hovering says where to connect. **Open:** labels are the note's first words and read badly; a paraphrase is wanted (see below). **Parked:** the suggestion line and the Draft reading tray.
 
 **Library as of 2026-09-27:** 505 highlights in 70 articles, all from Reader. 95% of highlights have notes, many of them 200+ characters of dictated thinking. Tags are almost unused, so tag-to-concept mapping isn't worth building.
 
 Open questions:
-- [OPEN] `sourced` vs `verified`. Proposal: imported highlights are `sourced`, and verification stays a human act.
+- [DECIDED 2026-09-30] A Readwise passage is `verified: true`: the words and the source came from Readwise, so the citation is real. Cooper's call.
+- [OPEN] Relatedness is loose: Readwise's score is a rank, not a distance, so anything in a one-field library comes back. Proposal (a model judge that also writes the label): github.com/coopshea/scratch/issues/20.
+- [OPEN] Paraphrase: a short summary label for a pulled note, like the parser's labels. Only the label is abstracted; the note and the highlight stay verbatim.
 - [OPEN] Ranking weights: more matching highlights and more of the writer's own notes rank an article higher. Tune these against the real library.
 
 ### Other reading sources (Obsidian, Apple Notes)

@@ -6,16 +6,21 @@ export const slug = new URLSearchParams(location.search).get('p') ?? 'scratch';
 const base = `/api/p/${slug}`;
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  // The browser's own words for an unreachable server ("Failed to fetch") read like the source failed.
   const res = await fetch(base + path, {
     ...init,
     headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
-  });
+  }).catch(() => { throw new Error("Can't reach Scratch's server. Check your connection, then try again."); });
   const body = await res.json().catch(() => ({}));
   if (!res.ok && !('blurt' in body)) throw new Error(body.error ?? `Request failed (${res.status})`);
   return body as T;
 }
 
 export type ParseResponse = { blurt: Blurt; units: Unit[]; error?: string; buy?: boolean };
+/** A passage from the writer's reading: the source's words, and the writer's note on them. */
+export type Passage = { id: string; quote: string; note: string; title: string; author: string; url: string | null };
+/** A passage offered for a thread (root id), or for the document when it has no threads yet. */
+export type Suggestion = { home: string | null; passage: Passage };
 
 export const api = {
   load: () => call<Project>(''),
@@ -26,6 +31,12 @@ export const api = {
   blurt: (text: string) => call<ParseResponse>('/blurts', { method: 'POST', body: JSON.stringify({ text }) }),
   reparse: (id: string) => call<ParseResponse>(`/blurts/${id}/parse`, { method: 'POST' }),
   patch: (id: string, patch: Partial<Unit>) => call<Unit>(`/units/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  readwise: {
+    status: async () => (await fetch('/api/readwise/status')).json() as Promise<{ token: boolean; search: boolean }>,
+    search: (query: string) => call<{ enabled: boolean; passages: Passage[] }>('/readwise/search', { method: 'POST', body: JSON.stringify({ query }) }),
+    adopt: (id: string, home: string | null) => call<Unit>('/readwise/adopt', { method: 'POST', body: JSON.stringify({ id, home }) }),
+    related: () => call<{ suggestions: Suggestion[] }>('/readwise/related', { method: 'POST' }),
+  },
   upload: async (file: File) => {
     const res = await fetch(`${base}/assets`, { method: 'POST', headers: { 'x-filename': file.name }, body: file });
     const body = await res.json();

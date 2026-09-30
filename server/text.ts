@@ -21,7 +21,3 @@ export function cutLabel(quote: string): string {
   }
   return label.replace(/[,;:.\u2014-]+$/, '') || quote.slice(0, LABEL_MAX_CHARS).trim();
 }
-
-/** The writer's note on a passage, as note paragraphs. Their words, unparsed. */
-export const noteBlocks = (note: string) => note.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean)
-  .map((text) => ({ type: 'paragraph', content: [{ type: 'text', text, styles: {} }] }));
