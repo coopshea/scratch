@@ -40,6 +40,8 @@ export interface Unit {
 export interface SourceRef {
   kind: 'readwise';
   id: string;
+  /** The passage the writer highlighted, in the source's words. The unit's text is the writer's note on it, when there is one. */
+  quote?: string;
   title: string;
   author: string;
   url: string | null;

@@ -71,7 +71,7 @@ describe('readwise module', () => {
     expect(p).toEqual({
       source: 'readwise', id: '1035843920', quote: HIGHLIGHT.text,
       note: 'So if your planes are gonna fly around to other places, they have to meet the standards of those places.\n\nObviously.',
-      title: BOOK.title, author: 'Aakash Japi', url: null,
+      title: BOOK.title, author: 'Aakash Japi', url: null, score: 0.031,
     });
   });
 
@@ -108,23 +108,22 @@ describe('adopting a passage as evidence', () => {
   let slug: string;
   beforeAll(async () => { slug = (await request(app).post('/api/projects').send({ title: 'reading' })).body.slug; });
 
-  it('searches, then creates a sourced, unverified evidence unit with the writer’s note', async () => {
+  it('searches, then creates one verified idea led by the writer’s note, with the highlight and source beside it', async () => {
     const found = (await request(app).post(`/api/p/${slug}/readwise/search`).send({ query: 'certification' })).body;
     expect(found.passages).toHaveLength(2);
     const u: Unit = (await request(app).post(`/api/p/${slug}/readwise/adopt`).send({ id: '1035843920' })).body;
     expect(u).toMatchObject({
-      type: 'evidence', origin: 'source', labeledBy: 'system', verified: false, status: 'accepted', text: HIGHLIGHT.text,
-      source: { kind: 'readwise', id: '1035843920', title: BOOK.title, author: 'Aakash Japi', url: BOOK.source_url },
+      type: 'evidence', origin: 'human', labeledBy: 'system', verified: true, status: 'accepted', note: null,
+      text: 'So if your planes are gonna fly around to other places, they have to meet the standards of those places.\n\nObviously.',
+      source: { kind: 'readwise', id: '1035843920', quote: HIGHLIGHT.text, title: BOOK.title, author: 'Aakash Japi', url: BOOK.source_url },
     });
-    expect((u.note as { content: { text: string }[] }[]).map((b) => b.content[0].text))
-      .toEqual(['So if your planes are gonna fly around to other places, they have to meet the standards of those places.', 'Obviously.']);
     expect(readEvents(DATA, slug).at(-1)).toMatchObject({ type: 'source.adopt', author: 'human', data: { unit: { id: u.id } } });
   });
 
   it('takes the words from Readwise, never from the request', async () => {
     const other = (await request(app).post('/api/projects').send({ title: 'tamper' })).body.slug;
-    const u: Unit = (await request(app).post(`/api/p/${other}/readwise/adopt`).send({ id: '1035843920', text: 'fake quote' })).body;
-    expect(u.text).toBe(HIGHLIGHT.text);
+    const u: Unit = (await request(app).post(`/api/p/${other}/readwise/adopt`).send({ id: '1035843920', text: 'fake quote', quote: 'fake quote' })).body;
+    expect(u.source?.quote).toBe(HIGHLIGHT.text);
   });
 
   it('adopting twice returns the same unit, and search stops offering it', async () => {
@@ -142,5 +141,40 @@ describe('adopting a passage as evidence', () => {
     expect(res.status).toBe(200); // already adopted: the existing unit comes back unchanged
     const fresh = (await request(app).post('/api/projects').send({ title: 'homes' })).body.slug;
     expect((await request(app).post(`/api/p/${fresh}/readwise/adopt`).send({ id: '1035843920', home: 'not-a-claim' })).status).toBe(400);
+  });
+});
+
+describe('suggesting reading for a spill', () => {
+  it('searches each thread, offers only close matches under the thread that found them, and adds nothing', async () => {
+    const slug = (await request(app).post('/api/projects').send({ title: 'jet engines' })).body.slug;
+    // A thread to search by: one root claim, parsed offline.
+    process.env.PARSER = 'offline';
+    await request(app).post(`/api/p/${slug}/blurts`).send({ text: 'Certification makes engines hard to copy.' });
+    delete process.env.PARSER;
+    const before = (await request(app).get(`/api/p/${slug}`)).body.units as Unit[];
+    const root = before.find((u) => u.type === 'claim' && !u.home)!;
+    const events = readEvents(DATA, slug).length;
+    // The first hit matched by meaning and words (about 1/30); the second only by one of them (about 1/60).
+    mcp.callTool.mockResolvedValue({ content: [{ type: 'text', text: JSON.stringify([{ ...SEARCH_HITS[0], score: 0.032 }, { ...SEARCH_HITS[1], score: 0.016 }]) }] });
+    const res = await request(app).post(`/api/p/${slug}/readwise/related`);
+    expect(res.status).toBe(200);
+    expect(res.body.suggestions).toEqual([{ home: root.id, passage: expect.objectContaining({ id: '1035843920', quote: HIGHLIGHT.text }) }]);
+    expect((await request(app).get(`/api/p/${slug}`)).body.units).toHaveLength(before.length);
+    expect(readEvents(DATA, slug)).toHaveLength(events);
+
+    // Picking one adopts it under that thread; it is then no longer offered.
+    const u: Unit = (await request(app).post(`/api/p/${slug}/readwise/adopt`).send({ id: '1035843920', home: root.id })).body;
+    expect(u).toMatchObject({ home: root.id, origin: 'human', verified: true, source: { quote: HIGHLIGHT.text, url: BOOK.source_url } });
+    expect((await request(app).post(`/api/p/${slug}/readwise/related`)).body.suggestions).toEqual([]);
+  });
+
+  it('leaves out passages whose note is already spilled in the document', async () => {
+    const slug = (await request(app).post('/api/projects').send({ title: 'pasted notes' })).body.slug;
+    process.env.PARSER = 'offline';
+    await request(app).post(`/api/p/${slug}/blurts`).send({ text: `Planes and standards. ${SEARCH_HITS[0].attributes.highlight_note}` });
+    delete process.env.PARSER;
+    mcp.callTool.mockResolvedValue({ content: [{ type: 'text', text: JSON.stringify([{ ...SEARCH_HITS[0], score: 0.033 }]) }] });
+    expect((await request(app).post(`/api/p/${slug}/readwise/related`)).body.suggestions).toEqual([]);
+    expect((await request(app).post(`/api/p/${slug}/readwise/search`).send({ query: 'planes' })).body.passages).toEqual([]);
   });
 });

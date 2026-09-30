@@ -24,6 +24,8 @@ export interface Passage {
   title: string;
   author: string;
   url: string | null;
+  /** The source's own relevance score for a search hit; higher is closer. */
+  score?: number;
 }
 
 const envToken = () => process.env.READWISE_TOKEN?.trim() || '';
@@ -53,6 +55,7 @@ function connect(tok: string): Promise<Client> {
 
 const Hit = z.object({
   id: z.union([z.number(), z.string()]),
+  score: z.number().nullish(),
   attributes: z.object({
     document_title: z.string().nullish(),
     document_author: z.string().nullish(),
@@ -77,6 +80,7 @@ export async function search(query: string, limit = 10, tok = envToken()): Promi
     title: h.attributes.document_title ?? '',
     author: h.attributes.document_author ?? '',
     url: null,
+    ...(h.score != null ? { score: h.score } : {}),
   }));
 }
 

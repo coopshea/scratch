@@ -203,6 +203,7 @@ export function Graph({ units, selectedId, onSelect }: Props) {
               {!mini && <>
                 {!(u.type === 'claim' && !u.home) && <span className="kind">{u.type}</span>}
                 <span className="lbl">{u.label}</span>
+                {u.source && <span className="src">{u.source.title || 'Readwise'}</span>}
               </>}
               <div className="tip">{u.text}</div>
             </div>

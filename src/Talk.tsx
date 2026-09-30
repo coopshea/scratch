@@ -1,7 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { Blurt, Unit } from '../shared/types.ts';
+import { isRoot } from '../shared/clusters.ts';
+import { api, type Suggestion } from './api.ts';
+import { PassageRow } from './Passage.tsx';
 import type { Billing } from './App.tsx';
 import { Icon } from './icons.tsx';
+import { NeedsReadwise, type ReadwiseOff } from './ReadwiseOff.tsx';
 
 type Props = {
   units: Unit[];
@@ -15,9 +19,12 @@ type Props = {
   onBlurt: (text: string) => Promise<boolean>;
   onReparse: (id: string) => void;
   sheetOpen: boolean;
+  /** Readwise connected and something spilled: offer related reading; picking a passage adds it under its thread. */
+  onAdopt?: (id: string, home: string | null) => Promise<void>;
+  readwiseOff?: ReadwiseOff;
 };
 
-export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, billing, onBlurt, onReparse, sheetOpen }: Props) {
+export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, billing, onBlurt, onReparse, sheetOpen, onAdopt, readwiseOff }: Props) {
   const [text, setText] = useState('');
   const box = useRef<HTMLTextAreaElement>(null);
   // The spill page always holds the cursor unless a note is open.
@@ -25,14 +32,33 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
   const parsedIds = new Set(units.map((u) => u.blurtId));
   const unparsed = blurts.filter((b) => !parsedIds.has(b.id) && b.id !== failedBlurtId);
 
-  const [verb, setVerb] = useState(pick);
   const cutting = useCutting(busy);
   const dictation = useDictation((heard) => setText((t) => (t && !/\s$/.test(t) ? `${t} ` : t) + heard.trim()));
+
+  // Suggestions from Readwise wait here until the writer picks; nothing is added unasked.
+  const [pulling, setPulling] = useState(false);
+  const [offered, setOffered] = useState<Suggestion[] | null>(null);
+  const [pullError, setPullError] = useState<string | null>(null);
+  const review = useRef<HTMLDivElement>(null);
+  const pull = async () => {
+    if (!onAdopt || pulling) return;
+    setPulling(true); setPullError(null);
+    try { setOffered((await api.readwise.related()).suggestions); }
+    catch (e) { setPullError((e as Error).message); }
+    finally { setPulling(false); }
+  };
+  useEffect(() => { if (offered?.length) review.current?.focus(); }, [offered]);
+  const pick = (s: Suggestion) => {
+    setOffered((o) => (o ? o.filter((x) => x.passage.id !== s.passage.id) : o));
+    onAdopt?.(s.passage.id, s.home);
+  };
+  const closeReview = () => { setOffered(null); box.current?.focus(); };
+  const threadName = (home: string | null) => (home ? units.find((u) => u.id === home && isRoot(u))?.label : null) ?? 'loose';
 
   const submit = async () => {
     dictation.stop();
     if (!text.trim() || busy) return;
-    if (await onBlurt(text)) { setText(''); setVerb(pick); }
+    if (await onBlurt(text)) setText('');
   };
 
   return (
@@ -63,11 +89,39 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
           aria-pressed={dictation.listening}>
           <Icon name="mic" />{dictation.listening ? 'listening… stop' : 'speak'}
         </button>
-        <button className="btn btn-primary" onClick={submit} disabled={busy || !text.trim()} aria-label="Cut into ideas">
-          <Icon name="scissors" />{busy ? cutting : verb}{!busy && <kbd className="kbd">⌘↵</kbd>}
+        <button className="btn btn-primary" onClick={submit} disabled={busy || !text.trim()} aria-label="Parse writing">
+          <Icon name="scissors" />{busy ? cutting : 'Parse writing'}{!busy && <kbd className="kbd">⌘↵</kbd>}
         </button>
       </div>
+      {/* Secondary to parsing: a quiet line under the bar, never a button beside it. */}
+      {onAdopt && (
+        <div className="pull-row">
+          {readwiseOff
+            ? <NeedsReadwise off={readwiseOff}><span className="link muted pull"><Icon name="book" small />pull relevant from Readwise</span></NeedsReadwise>
+            : <button className="link muted pull" onClick={pull} disabled={busy || pulling} title="Your notes and highlights from Readwise that match your threads, for you to pick from">
+                <Icon name="book" small />{pulling ? 'reading…' : 'pull relevant from Readwise'}
+              </button>}
+        </div>
+      )}
 
+      {pullError && <p className="error">{pullError}</p>}
+      {offered && (
+        <div className="pull-review" ref={review} tabIndex={-1} aria-label="From your reading"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.stopPropagation(); closeReview(); return; }
+            const n = Number(e.key);
+            if (n >= 1 && n <= Math.min(9, offered.length)) { e.preventDefault(); pick(offered[n - 1]); }
+          }}>
+          {!offered.length && <p className="hint">Nothing close in your reading.</p>}
+          {offered.map((s, i) => (
+            <Fragment key={s.passage.id}>
+              {(i === 0 || offered[i - 1].home !== s.home) && <p className="pull-thread">{threadName(s.home)}</p>}
+              <PassageRow p={s.passage} n={i + 1} onPick={() => pick(s)} />
+            </Fragment>
+          ))}
+          <button className="link muted" onClick={closeReview}>done</button>
+        </div>
+      )}
       {dictation.problem && (
         <p className="dictation-problem" role="status">
           {dictation.problem === 'blocked'
@@ -106,16 +160,11 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
   );
 }
 
-/** The cut button's words, picked at random each time; the -ing forms turn over while the parser works. */
-const VERBS = [
-  'cut into ideas', 'chop concepts', 'segment insights', 'polish the turd', 'kick the anthill', 'slice and dice',
-  'untangle the yarn', 'herd the cats', 'pan for gold', 'shake the tree', 'sort the junk drawer', 'separate wheat from chaff',
-];
+/** While the parser works, the button's words turn over at random; at rest it says plainly what it does. */
 const GERUNDS = [
   'cutting…', 'chopping…', 'segmenting…', 'polishing…', 'kicking the anthill…', 'slicing and dicing…',
   'untangling…', 'herding cats…', 'panning for gold…', 'shaking the tree…', 'rummaging…', 'threshing…',
 ];
-const pick = () => VERBS[Math.floor(Math.random() * VERBS.length)];
 
 function useCutting(busy: boolean) {
   const [word, setWord] = useState(GERUNDS[0]);

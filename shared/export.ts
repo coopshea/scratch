@@ -28,7 +28,7 @@ export function toMarkdown(title: string, draft: string, units: Unit[]): string 
         noteNo.set(id, n);
         const s = u.source;
         const cite = s ? ` (${[s.author, s.title && `*${s.title}*`, s.url].filter(Boolean).join(', ')})` : '';
-        notes.push(`[^${n}]: ${u.text.trim().replace(/\s+/g, ' ')}${cite}`);
+        notes.push(`[^${n}]: ${(s?.quote ?? u.text).trim().replace(/\s+/g, ' ')}${cite}`);
       }
       return `[^${n}]`;
     })

@@ -17,6 +17,9 @@
   --pencil: #2d5ca6;
   --pencil-soft: #e7eef9;
   --pencil-line: #5a7fbf;
+  /* Someone else's words (a quoted highlight): a highlighter, so it never reads as the writer's. */
+  --highlight: #fbeeb8;
+  --highlight-edge: #e2c56a;
   --question: #875600;
   --question-soft: #f7eddb;
   --objection: #a5352a;
@@ -162,7 +165,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .dictation-problem { margin: 0; text-align: right; font: 400 13px/18px var(--sans); color: var(--ink-2); }
 .dictation-problem a { color: inherit; }
 .blurt-bar .listening { color: var(--objection); }
-.blurt-bar { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+.blurt-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+.pull-row { display: flex; justify-content: flex-end; margin-top: -6px; }
+.pull-row .pull { display: inline-flex; align-items: center; gap: 6px; }
+.pull-row .needs-readwise-tip { left: auto; right: 0; }
 .error { margin: 0; font: 400 13px/18px var(--sans); color: var(--objection); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 .unparsed { display: flex; gap: 12px; align-items: center; justify-content: space-between; font: 400 14px/20px var(--serif); color: var(--ink-2);
   padding: 8px 0; border-top: 1px solid var(--line); }
@@ -259,6 +265,33 @@ select { appearance: none; background: none; border: 0; padding: 0; cursor: poin
 select:focus { outline: none; text-decoration: underline; }
 .type-select { color: var(--ink-3); }
 .original { margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line-strong); font: italic 400 16px/26px var(--serif); color: var(--ink); }
+.reading .link { display: inline-flex; align-items: center; gap: 6px; }
+.reading .link .kbd { height: 18px; font-size: 11px; padding: 0 4px; }
+.pull-review { display: flex; flex-direction: column; gap: 6px; outline: none; }
+.pull-thread { margin: 8px 0 0; font: 600 10.5px/14px var(--sans); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.pull-review:focus .passage .kbd { border-color: var(--pencil-line); color: var(--pencil); }
+.reading-list { display: flex; flex-direction: column; gap: 6px; outline: none; }
+.reading-list:focus .passage .kbd { border-color: var(--pencil-line); color: var(--pencil); }
+.passage { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: start; text-align: left; background: var(--card, #fff); border: 1px solid var(--line); border-radius: var(--radius-card); padding: 8px 10px; cursor: pointer; font: inherit; color: var(--ink); }
+.passage:hover { border-color: var(--pencil-line); }
+.passage .kbd { height: 18px; font-size: 11px; padding: 0 4px; margin-top: 2px; }
+.passage-note { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font: 400 15px/21px var(--serif); color: var(--ink); margin-bottom: 6px; }
+/* Someone else's words: a highlighter mark in the interface face, never the writer's serif. */
+.passage-quote, .cited mark { background: var(--highlight); color: var(--ink-2); box-decoration-break: clone; -webkit-box-decoration-break: clone; padding: 1px 3px; border-radius: 2px; }
+.passage-quote { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font: 400 13px/19px var(--sans); }
+.cited { margin: 0; padding: 10px 12px; border-left: 3px solid var(--highlight-edge); background: var(--desk); }
+.cited blockquote { margin: 0; font: 400 14px/22px var(--sans); }
+.cited figcaption { margin-top: 6px; font: 500 12px/16px var(--sans); color: var(--ink-3); }
+.cited figcaption a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.needs-readwise { position: relative; display: inline-flex; }
+.needs-readwise-control { text-decoration: none; opacity: .45; cursor: help; }
+.needs-readwise-control:hover { text-decoration: none; }
+.needs-readwise-tip { display: none; position: absolute; z-index: 50; bottom: calc(100% + 6px); left: 0; width: 240px; padding: 8px 10px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-card); box-shadow: var(--shadow-card); font: 400 13px/18px var(--sans); color: var(--ink-2); }
+.needs-readwise-tip a { color: var(--pencil); }
+.needs-readwise:hover .needs-readwise-tip, .needs-readwise:focus-within .needs-readwise-tip { display: block; }
+.needs-readwise-tip::after { content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 8px; }
+.unit .src { display: block; font: 500 10.5px/14px var(--sans); color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 22ch; }
+.passage cite { display: block; margin-top: 4px; font: 500 11.5px/16px var(--sans); color: var(--ink-3); font-style: normal; }
 .links { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .links em { color: var(--ink-3); font: 600 10.5px/14px var(--sans); letter-spacing: .06em; text-transform: uppercase; font-style: normal; margin-right: 4px; }
 /* The note area fills the rest of the sheet; a click anywhere below the text puts the cursor at its end. */

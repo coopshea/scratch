@@ -157,6 +157,14 @@ export function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => v
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paid]);
 
+  // Sent here to connect Readwise (?account#readwise): bring that field into view and put the cursor in it.
+  useEffect(() => {
+    if (location.hash !== '#readwise') return;
+    const field = document.getElementById('readwise');
+    field?.scrollIntoView({ block: 'center' });
+    field?.querySelector('input')?.focus();
+  }, []);
+
   const fail = (where: Where) => (e: Error) => setError({ where, message: e.message });
   const pay = (what: 'topup' | 'subscription') => billingApi.checkout(what, cents).catch(fail('credits'));
 
@@ -245,7 +253,7 @@ export function Account({ me, onChange, menu }: { me: Me; onChange: (m: Me) => v
 
         <div className="divider" />
 
-        <section>
+        <section id="readwise">
           <span className="field-label">Readwise</span>
           {a.hasReadwise && !replacingRw
             ? (
