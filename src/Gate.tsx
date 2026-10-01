@@ -4,7 +4,7 @@ import { App, type Billing } from './App.tsx';
 import { billing as billingApi, slug } from './api.ts';
 import { Icon } from './icons.tsx';
 import { Loader, useLoaderHold } from './Loader.tsx';
-import { openFeedback, posthog } from './posthog.ts';
+import { openFeedback, posthog, recordReplay } from './posthog.ts';
 import { Welcome } from './Welcome.tsx';
 
 export type Me = {
@@ -57,6 +57,7 @@ export function Gate() {
   useEffect(() => {
     if (!isLoaded || !isUserLoaded) return;
     if (!isSignedIn || !user) {
+      recordReplay(false);
       if (identifiedUserId.current) {
         posthog?.reset();
         identifiedUserId.current = null;
@@ -80,6 +81,7 @@ export function Gate() {
   // Account facts for analytics; never the key or the balance amount.
   useEffect(() => {
     if (!me) return;
+    recordReplay(me.unlimited);
     posthog?.setPersonProperties({
       free_parses_used: me.account.freeParsesUsed, subscribed: me.account.subscribed,
       own_key: me.account.hasOwnKey, has_balance: me.account.balanceMicros > 0,
