@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { SideMenuController, SuggestionMenuController, useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
 import { en } from '@blocknote/core/locales';
-import type { Blurt, SourceRef, Unit } from '../shared/types.ts';
+import { UNTYPED, type Blurt, type SourceRef, type Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { api, type Passage } from './api.ts';
 import { noBlockHints, noSpellcheckInCode, schema, ScratchSideMenu, slashItems } from './blocks.tsx';
@@ -155,7 +155,7 @@ export function NoteSheet({ unit, units, blurts, onPatch, onClose, onFocus, read
 
       {children.length > 0 && (
         <nav className="links">
-          {children.map((c) => <button key={c.id} className="link" onClick={() => onFocus(c.id)}><em>{c.type}</em> {c.label}</button>)}
+          {children.map((c) => <button key={c.id} className="link" onClick={() => onFocus(c.id)}><em>{c.type ?? UNTYPED}</em> {c.label}</button>)}
         </nav>
       )}
       {sameLabel.length > 0 && (

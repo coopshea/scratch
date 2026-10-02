@@ -1,10 +1,12 @@
-import { UNIT_TYPES, type UnitType } from '../shared/types.ts';
-import { TYPE_INK } from './typeStyle.ts';
+import { UNIT_TYPES, UNTYPED, type UnitType } from '../shared/types.ts';
+import { inkOf } from './typeStyle.ts';
 
-export function TypeSelect({ value, onChange }: { value: UnitType; onChange: (t: UnitType) => void }) {
+/** null shows as untyped until the writer picks a type; untyped can't be picked back. */
+export function TypeSelect({ value, onChange }: { value: UnitType | null; onChange: (t: UnitType) => void }) {
   return (
-    <select className="type-select" value={value} onChange={(e) => onChange(e.target.value as UnitType)}
-      style={{ color: TYPE_INK[value] }}>
+    <select className="type-select" value={value ?? ''} onChange={(e) => { if (e.target.value) onChange(e.target.value as UnitType); }}
+      style={{ color: inkOf(value) }}>
+      {value === null && <option value="" disabled>{UNTYPED}</option>}
       {UNIT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
     </select>
   );
