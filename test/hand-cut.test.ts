@@ -183,6 +183,27 @@ describe('4. words already cut aren’t cut again', () => {
   });
 });
 
+describe('cutting by hand from a closed spill', () => {
+  it('knows the position at once, and leaves the open spill alone', async () => {
+    const { slug, parse, load } = await setup();
+    const id = (await parse(SPILL)).body.blurt.id;
+    const start = SPILL.indexOf('The GE9X');
+    // As highlighted on the page, a stray space included: the idea takes the words, the position follows them.
+    const res = await request(app).post(`/api/p/${slug}/units`)
+      .send({ text: ' The GE9X ran thousands', home: null, from: { blurtId: id, start: start - 1, end: start + 22 } });
+    expect(res.body).toMatchObject({ text: 'The GE9X ran thousands', blurtId: id, start, end: start + 22, type: null, cutBy: 'human' });
+    expect(res.body.flags).toBeUndefined();
+    expect((await load()).open).toBeNull();
+  });
+
+  it('flags words that aren’t in that spill', async () => {
+    const { slug, parse } = await setup();
+    const id = (await parse(SPILL)).body.blurt.id;
+    const res = await request(app).post(`/api/p/${slug}/units`).send({ text: 'never said this', from: { blurtId: id, start: 0, end: 15 } });
+    expect(res.body).toMatchObject({ start: -1, flags: { notVerbatim: true } });
+  });
+});
+
 describe('5. a parse types and groups untyped ideas', () => {
   it('types an untyped hand cut in the same call, logged as model', async () => {
     const { cut, parse, load, events } = await setup();

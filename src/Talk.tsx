@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Blurt, Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { api, type Suggestion } from './api.ts';
@@ -6,6 +6,7 @@ import { PassageRow } from './Passage.tsx';
 import type { Billing } from './App.tsx';
 import { Icon } from './icons.tsx';
 import { CUT, SPILL } from './spillDrag.ts';
+import { Spills } from './Spills.tsx';
 import { NeedsReadwise, type ReadwiseOff } from './ReadwiseOff.tsx';
 
 type Props = {
@@ -24,12 +25,14 @@ type Props = {
   onBlurt: (text: string) => Promise<boolean>;
   onReparse: (id: string) => void;
   sheetOpen: boolean;
+  /** Open an idea in the note sheet: clicking words already cut from an earlier spill. */
+  onSelect: (id: string) => void;
   /** Readwise connected and something spilled: offer related reading; picking a passage adds it under its thread. */
   onAdopt?: (id: string, home: string | null) => Promise<void>;
   readwiseOff?: ReadwiseOff;
 };
 
-export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlurtId, outOfCredits, billing, onBlurt, onReparse, sheetOpen, onAdopt, readwiseOff }: Props) {
+export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlurtId, outOfCredits, billing, onBlurt, onReparse, sheetOpen, onSelect, onAdopt, readwiseOff }: Props) {
   const [text, setText] = useState(open?.text ?? '');
   const box = useRef<HTMLTextAreaElement>(null);
   // The box is always saved: about a second after typing stops, and on the way out. One save per pause, not per key.
@@ -83,8 +86,13 @@ export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlur
     if (await onBlurt(text)) { saved.current = ''; setText(''); }
   };
 
+  // The page opens at the box, under everything already spilled.
+  const page = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { if (page.current) page.current.scrollTop = page.current.scrollHeight; }, [blurts.length]);
+
   return (
-    <div className="talk">
+    <div className="talk" ref={page}>
+      <Spills blurts={blurts} units={units} onSelect={onSelect} />
       <div className="spill-box">
         <textarea
           ref={box}

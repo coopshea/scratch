@@ -8,7 +8,7 @@ function when(iso: string) {
   return `${d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · ${ago}`;
 }
 
-const VERB: Record<string, string> = { 'blurt.create': 'blurt', parse: 'parsed', 'unit.update': 'edit', 'unit.create': 'cut by hand','asset.upload': 'image' };
+const VERB: Record<string, string> = { 'blurt.create': 'blurt', parse: 'parsed', 'unit.update': 'edit', 'unit.create': 'cut by hand', 'blurt.update': 'spill saved', 'asset.upload': 'image' };
 
 type Props = {
   events: LogEvent[];

@@ -11,6 +11,8 @@ import type { CutSource } from './api.ts';
 export const CUT = 'application/x-scratch-cut';
 /** With CUT from the spill box: the box's whole text, so the server saves it before the cut points to it. */
 export const SPILL = 'application/x-scratch-spill';
+/** With CUT from a closed spill: where the words sit in it, as JSON { blurtId, start, end }. */
+export const SPAN = 'application/x-scratch-span';
 export const UNIT = 'application/x-scratch-unit';
 
 const targetOf = (e: React.DragEvent) => (e.target as Element).closest<HTMLElement>('[data-drop]');
@@ -53,7 +55,11 @@ export function useBoardDrop({ units, onCut, onNest }: {
       const on = targetOf(e)?.dataset.drop ?? null;
       clear();
       const text = e.dataTransfer.getData(CUT);
-      if (text.trim()) { onCut(text, nestTarget(units, on) ?? null, { spill: e.dataTransfer.getData(SPILL) }); return; }
+      if (text.trim()) {
+        const span = e.dataTransfer.getData(SPAN);
+        onCut(text, nestTarget(units, on) ?? null, span ? { from: JSON.parse(span) } : { spill: e.dataTransfer.getData(SPILL) });
+        return;
+      }
       const id = e.dataTransfer.getData(UNIT);
       const moving = units.find((u) => u.id === id);
       if (!moving) return;

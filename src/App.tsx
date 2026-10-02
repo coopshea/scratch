@@ -248,7 +248,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
           ? <History events={history.events} count={history.count} onCount={(count) => setHistory({ ...history, count })}
               units={past.units} selectedId={selectedId} onSelect={setSelectedId} />
           : <Talk units={units} blurts={blurts} open={project.open} onSaveSpill={onSaveSpill} busy={busy} error={error} failedBlurtId={failedBlurtId}
-              outOfCredits={outOfCredits} billing={billing} onBlurt={onBlurt} onReparse={onReparse} sheetOpen={!!selected}
+              outOfCredits={outOfCredits} billing={billing} onBlurt={onBlurt} onReparse={onReparse} sheetOpen={!!selected} onSelect={setSelectedId}
               onAdopt={reading !== null && units.some((u) => u.status !== 'cut') ? onAdopt : undefined} readwiseOff={readwiseOff} />}
         <section className="canvas" {...(history ? {} : drop)}>
           {units.some((u) => u.status !== 'cut')
