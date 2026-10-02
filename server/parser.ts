@@ -38,6 +38,8 @@ For each unit:
 
 Prefer fewer, broader roots. A root gathers the pieces of one thread, the way a heading gathers a pile of sticky notes. A page of notes usually has about 3 to 7 threads; use more only when the blurt truly covers more. Do not make every assertion a root.
 
+The writer's existing ideas are listed below, nested as they stand: each root with its pieces indented beneath it, then loose ones. Some were cut by hand: the writer highlighted those words and pulled them out before you saw the blurt, and their words are quoted. Never cut those words again, even inside a longer span; cut only what is not already there. Make new units fit around the existing ideas: put a piece under the existing root it belongs to rather than starting a duplicate root.
+
 Reuse labels: if a unit expresses the same concept as a label in the existing vocabulary, use that label exactly. Only coin a new label when none fits.
 
 Cover every substantive idea. Skip pure filler ("um, anyway, where was I"). Do not merge separate mentions of the same idea; give each its own unit with the same label.`;
@@ -89,6 +91,37 @@ function offlineParse(blurt: string): ParsedUnit[] {
   });
 }
 
+/** An idea already in the document, as the parser sees it. `text` is set only for ideas the writer cut by hand. */
+export type ExistingNode = { id: string; type: string; label: string; home: string | null; text?: string };
+/** Hand-cut words shown to the parser are capped, so one long highlight can't swell every later parse. */
+const HAND_QUOTE_MAX = 400;
+
+/**
+ * The parser's user message: the vocabulary, the existing ideas nested as they stand (roots by id, so new pieces
+ * can join them; the writer's hand cuts quoted, so they aren't cut twice), then the blurt.
+ */
+export function buildContext(blurt: string, vocab: string[], roots: { id: string; type: string; label: string }[], nodes: ExistingNode[] = []): string {
+  const rootIds = new Set(roots.map((r) => r.id));
+  const line = (n: ExistingNode, indent: string, withId: boolean) => {
+    const quote = n.text !== undefined ? ` [cut by hand: "${n.text.length > HAND_QUOTE_MAX ? `${n.text.slice(0, HAND_QUOTE_MAX)}…` : n.text}"]` : '';
+    return `${indent}- ${withId ? `${n.id}, ` : ''}${n.type}: ${n.label}${quote}`;
+  };
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const tree: string[] = [];
+  for (const r of roots) {
+    const n = byId.get(r.id) ?? { ...r, home: null };
+    tree.push(line(n, '', true));
+    for (const k of nodes.filter((x) => x.home === r.id)) tree.push(line(k, '  ', false));
+  }
+  const loose = nodes.filter((n) => !rootIds.has(n.id) && !(n.home && rootIds.has(n.home)));
+  if (loose.length) tree.push('Loose (under no root):', ...loose.map((n) => line(n, '', false)));
+  return [
+    vocab.length ? `Existing vocabulary:\n${vocab.map((v) => `- ${v}`).join('\n')}` : 'Existing vocabulary: none yet.',
+    tree.length ? `Existing ideas (roots as id, type: label; their pieces indented beneath):\n${tree.join('\n')}` : 'Existing ideas: none yet.',
+    `<blurt>\n${blurt}\n</blurt>`,
+  ].join('\n\n');
+}
+
 export async function parseBlurt(
   blurt: string,
   vocab: string[],
@@ -96,17 +129,14 @@ export async function parseBlurt(
   apiKey?: string, // the writer's own key on the hosted site; otherwise the server's
   onUsage?: (u: Usage) => void, // what the parse cost, for metering the hosted site
   ai?: AiContext,
+  nodes: ExistingNode[] = [], // every idea already in the document, nested, with hand cuts quoted
 ): Promise<ParsedUnit[]> {
   if (process.env.PARSER === 'offline') {
     // No API call, but a stand-in cost so metering can be tested: roughly a real parse of this length.
     onUsage?.(usageOf('claude-opus-5-5', 1500 + Math.ceil(blurt.length / 4), Math.ceil(blurt.length / 2)));
     return offlineParse(blurt);
   }
-  const context = [
-    vocab.length ? `Existing vocabulary:\n${vocab.map((v) => `- ${v}`).join('\n')}` : 'Existing vocabulary: none yet.',
-    roots.length ? `Existing roots (id, type: label):\n${roots.map((r) => `- ${r.id}, ${r.type}: ${r.label}`).join('\n')}` : 'Existing roots: none yet.',
-    `<blurt>\n${blurt}\n</blurt>`,
-  ].join('\n\n');
+  const context = buildContext(blurt, vocab, roots, nodes);
 
   const api = apiKey ? new Anthropic({ apiKey }) : (client ??= new Anthropic()); // ANTHROPIC_API_KEY from .env
   // Tuning knobs for comparing models (npm run compare:parse); defaults are the shipped settings.

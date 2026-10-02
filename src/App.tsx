@@ -15,6 +15,7 @@ import { NoteSheet } from './NoteSheet.tsx';
 import { Structure } from './Structure.tsx';
 import { Talk } from './Talk.tsx';
 import { posthog } from './posthog.ts';
+import { useBoardDrop } from './spillDrag.ts';
 import type { ReadwiseOff } from './ReadwiseOff.tsx';
 
 type Stage = 'talk' | 'structure' | 'draft';
@@ -173,6 +174,24 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
     }
   };
 
+  /** Words the writer highlighted in the spill and dropped on the board: a new idea, theirs, under `home` or alone. */
+  const onCut = async (text: string, home: string | null) => {
+    if (history) return;
+    try {
+      const u = await api.cut(text, home);
+      setUnits((us) => [...us, u]);
+      posthog?.capture('idea_cut_by_hand', { nested: !!u.home });
+    } catch (e) { setError((e as Error).message); }
+  };
+
+  /** An idea dropped on another: it joins that cluster, and a root brings its own pieces along rather than dropping them. */
+  const onNest = async (id: string, home: string | null) => {
+    const kids = home ? (project?.units ?? []).filter((u) => u.home === id && u.status !== 'cut') : [];
+    for (const k of kids) await onPatch(k.id, { home });
+    await onPatch(id, { home });
+  };
+  const drop = useBoardDrop({ units: project?.units ?? [], onCut, onNest });
+
   const onBoard = (board: Board, auto = false) => {
     if (history) return;
     setProject((p) => (p ? { ...p, board } : p));
@@ -221,10 +240,10 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
           : <Talk units={units} blurts={blurts} busy={busy} error={error} failedBlurtId={failedBlurtId}
               outOfCredits={outOfCredits} billing={billing} onBlurt={onBlurt} onReparse={onReparse} sheetOpen={!!selected}
               onAdopt={reading !== null && units.some((u) => u.status !== 'cut') ? onAdopt : undefined} readwiseOff={readwiseOff} />}
-        <section className="canvas">
+        <section className="canvas" {...(history ? {} : drop)}>
           {units.some((u) => u.status !== 'cut')
             ? <>
-                <Graph units={units} selectedId={selectedId} onSelect={setSelectedId} />
+                <Graph units={units} selectedId={selectedId} onSelect={setSelectedId} movable={!history} />
                 {!history && <button className="btn btn-secondary btn-sm next-stage" onClick={() => setStage('structure')}>Shape these ideas <Icon name="arrow" small /></button>}
               </>
             : <EmptyBoard />}

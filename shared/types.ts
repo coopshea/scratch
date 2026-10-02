@@ -27,6 +27,9 @@ export interface Unit {
    *  'source' is a passage quoted verbatim from something the writer read. */
   origin: 'human' | 'model' | 'source';
   labeledBy: 'human' | 'model' | 'system';
+  /** 'human': the writer highlighted these words in the spill and dragged them out themselves, rather than the parser
+   *  cutting them. Later parses are told so, and don't cut the same words again. Absent for parsed and adopted units. */
+  cutBy?: 'human';
   verified: boolean;
   /** Rich-text note (BlockNote document JSON). */
   note: unknown[] | null;

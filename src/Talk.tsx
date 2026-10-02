@@ -5,6 +5,7 @@ import { api, type Suggestion } from './api.ts';
 import { PassageRow } from './Passage.tsx';
 import type { Billing } from './App.tsx';
 import { Icon } from './icons.tsx';
+import { CUT } from './spillDrag.ts';
 import { NeedsReadwise, type ReadwiseOff } from './ReadwiseOff.tsx';
 
 type Props = {
@@ -70,6 +71,11 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
+          // Highlighted words dragged out to the board become an idea, in these exact words (spillDrag.ts).
+          onDragStart={(e) => {
+            const t = e.currentTarget, words = t.value.slice(t.selectionStart, t.selectionEnd);
+            if (words.trim()) { e.dataTransfer.setData(CUT, words); e.dataTransfer.effectAllowed = 'copy'; }
+          }}
           disabled={busy}
           autoFocus
           spellCheck

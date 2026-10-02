@@ -46,3 +46,20 @@ export function settle(units: Pick<Unit, 'id' | 'home'>[], u: Pick<Unit, 'id' | 
   if (canHold(u.type) && !u.home) return;
   for (const x of units) if (x.home === u.id) x.home = null;
 }
+
+/**
+ * Where something dropped on `targetId` goes: under the root it was dropped on, or, dropped on a piece, under that
+ * piece's root (clusters stay one level deep, so "under a piece" means beside it). A loose piece can't hold anything,
+ * so a drop there lands loose. `movingId` is the idea being dragged, if it is one: dropping it on itself or on its
+ * own pieces changes nothing (undefined).
+ */
+export function nestTarget(
+  units: Pick<Unit, 'id' | 'type' | 'home' | 'status'>[], targetId: string | null, movingId?: string,
+): string | null | undefined {
+  const live = (id: string | null) => (id ? units.find((u) => u.id === id && u.status !== 'cut') : undefined);
+  const t = live(targetId);
+  if (!t) return null;
+  const parent = live(t.home);
+  const home = isRoot(t) ? t.id : parent && isRoot(parent) ? parent.id : null;
+  return movingId !== undefined && home === movingId ? undefined : home;
+}

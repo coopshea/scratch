@@ -30,6 +30,8 @@ export const api = {
   saveDraft: (text: string) => call<{ ok: true }>('/draft', { method: 'PUT', body: JSON.stringify({ text }) }),
   blurt: (text: string) => call<ParseResponse>('/blurts', { method: 'POST', body: JSON.stringify({ text }) }),
   reparse: (id: string) => call<ParseResponse>(`/blurts/${id}/parse`, { method: 'POST' }),
+  /** An idea cut by hand from the spill: the highlighted words, under `home`'s cluster or alone. */
+  cut: (text: string, home: string | null) => call<Unit>('/units', { method: 'POST', body: JSON.stringify({ text, home }) }),
   patch: (id: string, patch: Partial<Unit>) => call<Unit>(`/units/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   readwise: {
     status: async () => (await fetch('/api/readwise/status')).json() as Promise<{ token: boolean; search: boolean }>,

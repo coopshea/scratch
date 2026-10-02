@@ -7,7 +7,7 @@ import { checkKeyShape, checkReadwiseShape, FREE_PARSES, MAX_ACCOUNTS, type Acco
 import { CREDIT_MICROS, DONATION_CENTS, MAX_CENTS, MIN_CENTS, STRIPE_FEE, type Back, type Billing } from './billing.ts';
 import type { Usage } from './parser.ts';
 import { captureServerError } from './posthog.ts';
-import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
+import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ExistingNode, type ParsedUnit } from './parser.ts';
 import {
   appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
   listBlurts, withLock, writeBoard, writeDraft, writeMeta, writeUnits,
@@ -17,7 +17,7 @@ import { UNIT_TYPES as TYPES } from '../shared/types.ts';
 import { toMarkdown } from '../shared/export.ts';
 import * as readwise from './readwise.ts';
 import { cutLabel, locate } from './text.ts';
-import { canHold, canHoldUnit, isRoot, settle } from '../shared/clusters.ts';
+import { canHold, canHoldUnit, isRoot, nestTarget, settle } from '../shared/clusters.ts';
 import { labelProblem, UNIT_TYPES, type Blurt, type Unit } from '../shared/types.ts';
 
 /**
@@ -38,6 +38,7 @@ export type Hosted = {
 // output ceiling and fail anyway; it also bounds what one parse costs (roughly 2 to 20 cents).
 export const BLURT_MAX = 14_000;
 const SAVE_MAX = 200_000; // not even saved beyond this
+const HAND_CUT_MAX = 5_000; // one highlighted idea, not a whole spill
 /** Spill suggestions: threads searched, passages offered per thread, the most offered, and how close a match must be. */
 const PULL_THREADS = 7, PULL_PER_THREAD = 3, PULL_MAX = 10, PULL_MIN_SCORE = 0.02;
 
@@ -335,11 +336,29 @@ export function createApp(hosted?: Hosted): Express {
     const live = before.filter((u) => u.status !== 'cut');
     const vocab = [...new Set(live.map((u) => u.label))];
     const roots = live.filter(isRoot).map((u) => ({ id: u.id, type: u.type, label: u.label }));
+    // Everything already here, nested, so the parser builds around it; the writer's own cuts are quoted so they aren't cut twice.
+    const nodes: ExistingNode[] = live.map((u) => ({
+      id: u.id, type: u.type, label: u.label, home: u.home, ...(u.cutBy === 'human' ? { text: u.text } : {}),
+    }));
 
-    const parsed = await parseBlurt(blurt.text, vocab, roots, apiKey, onUsage, { projectId: slug, distinctId });
+    const parsed = await parseBlurt(blurt.text, vocab, roots, apiKey, onUsage, { projectId: slug, distinctId }, nodes);
 
     return withLock(slug, () => {
       const units = readUnits(slug);
+      // The writer's own cuts from this spill: tie each to the blurt it came from (the server's verbatim check, done
+      // now that the blurt exists), and drop any parsed unit that repeats one, so a hand cut is never cut twice.
+      const flat = (t: string) => t.replace(/\s+/g, ' ').trim().toLowerCase();
+      const handByText = new Map<string, Unit>();
+      const linked: { id: string; patch: Pick<Unit, 'blurtId' | 'start' | 'end'> }[] = [];
+      for (const u of units) {
+        if (u.cutBy !== 'human' || u.status === 'cut') continue;
+        handByText.set(flat(u.text), u);
+        if (u.blurtId) continue;
+        const loc = locate(blurt.text, u.text);
+        if (!loc) continue;
+        Object.assign(u, { blurtId: blurt.id, start: loc[0], end: loc[1] });
+        linked.push({ id: u.id, patch: { blurtId: blurt.id, start: loc[0], end: loc[1] } });
+      }
       // Controlled vocabulary: the first spelling of a label wins, including within this parse.
       const byLabel = new Map<string, string>();
       for (const u of units) if (!byLabel.has(u.label.toLowerCase())) byLabel.set(u.label.toLowerCase(), u.label);
@@ -347,17 +366,27 @@ export function createApp(hosted?: Hosted): Express {
       const keyToId = new Map<string, string>();
       parsed.forEach((p) => keyToId.set(p.key, newId()));
       const byKey = new Map(parsed.map((p) => [p.key, p]));
+      const locOf = new Map(parsed.map((p) => [p.key, locate(blurt.text, p.text)]));
+      // A parsed unit repeating a hand cut is dropped; pieces the model hung under it go to the hand cut's cluster.
+      const repeats = new Map<string, Unit>();
+      for (const p of parsed) {
+        const loc = locOf.get(p.key);
+        const hand = handByText.get(flat(loc ? blurt.text.slice(loc[0], loc[1]) : p.text));
+        if (hand) repeats.set(p.key, hand);
+      }
       // One level deep: a piece belongs to a root. If the model nests deeper, the piece moves up to that root.
       const parentOf = (p: ParsedUnit, seen = new Set<string>()): string | null => {
         if (!p.home || seen.has(p.key)) return null;
         seen.add(p.key);
         const local = byKey.get(p.home);
+        const hand = local && repeats.get(local.key);
+        if (hand) return rootIds.has(hand.id) ? hand.id : hand.home && rootIds.has(hand.home) ? hand.home : null;
         if (local && local.key !== p.key && canHold(local.type)) return parentOf(local, seen) ?? keyToId.get(local.key)!;
         return rootIds.has(p.home) ? p.home : null;
       };
 
-      const created: Unit[] = parsed.map((p: ParsedUnit) => {
-        const loc = locate(blurt.text, p.text);
+      const created: Unit[] = parsed.filter((p) => !repeats.has(p.key)).map((p: ParsedUnit) => {
+        const loc = locOf.get(p.key);
         const key = p.label.trim().toLowerCase();
         if (!byLabel.has(key)) byLabel.set(key, p.label.trim());
         const label = byLabel.get(key)!;
@@ -382,7 +411,9 @@ export function createApp(hosted?: Hosted): Express {
       });
 
       writeUnits(slug, [...units, ...created]);
-      appendEvent(slug, 'model', 'parse', { blurtId: blurt.id, units: created });
+      // Tying a hand cut to its blurt is the tool's doing, not the writer's or the model's.
+      for (const l of linked) appendEvent(slug, 'system', 'unit.update', l);
+      appendEvent(slug, 'model', 'parse', { blurtId: blurt.id, units: created, ...(repeats.size ? { skipped: [...new Set([...repeats.values()].map((u) => u.id))] } : {}) });
       return created;
     });
   }
@@ -449,6 +480,33 @@ export function createApp(hosted?: Hosted): Express {
       settle(units, u);
       writeUnits(slug, units);
       appendEvent(slug, 'human', 'unit.update', { id, patch });
+      return u;
+    });
+    res.json(unit);
+  }));
+
+  /**
+   * An idea the writer cut by hand: words highlighted in the spill and dragged onto the board. The words are theirs,
+   * kept exactly as sent; the label is cut from them (its first words), never written. Dropped on an idea, it goes
+   * under that idea's root; anywhere else, it stands alone. A question mark makes it a question, otherwise a claim.
+   */
+  app.post('/api/p/:slug/units', wrap(async (req, res) => {
+    const slug = slugOf(req);
+    const text = String(req.body?.text ?? '');
+    if (!text.trim()) throw new HttpError(400, 'Nothing was highlighted');
+    if (text.length > HAND_CUT_MAX) throw new HttpError(413, 'That is too long for one idea. Highlight less.');
+    const words = text.trim();
+    const unit = await withLock(slug, () => {
+      const units = readUnits(slug);
+      const home = nestTarget(units, req.body?.home ? String(req.body.home) : null) ?? null;
+      const u: Unit = {
+        id: newId(), type: words.endsWith('?') ? 'question' : 'claim', label: cutLabel(words), text: words,
+        blurtId: null, start: -1, end: -1, home, status: 'accepted',
+        origin: 'human', labeledBy: 'system', cutBy: 'human', verified: false, note: null,
+        createdAt: new Date().toISOString(),
+      };
+      writeUnits(slug, [...units, u]);
+      appendEvent(slug, 'human', 'unit.create', { unit: u });
       return u;
     });
     res.json(unit);
