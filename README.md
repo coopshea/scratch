@@ -51,7 +51,9 @@ Never paste a key into `.env.example`, an issue, or a commit. If a key leaks, re
 npm test
 ```
 
-Vitest runs the suite in under a second, and CI runs it with the typecheck on every PR. Tests never call the Anthropic or Readwise APIs, and they never touch `projects/`. The parser runs offline or as a stand-in, Readwise answers come from recorded responses, and each test file writes to its own temporary folder (`SCRATCH_DATA`). Most tests guard a rule from `CLAUDE.md`: cuts are verbatim, labels stay within limits, every change is logged with its author, model-written evidence is never counted as checked, and keys never reach the repo. `npm run test:watch` reruns tests on save. `npm run audit:parse` runs the CAD talk fixture through the real parser (one API call) and reports how it clustered; use it to compare prompt changes.
+Vitest runs the suite in under a second, and CI runs it with the typecheck on every PR. Tests never call the Anthropic or Readwise APIs, and they never touch `projects/`. The parser runs offline or as a stand-in, Readwise answers come from recorded responses, and each test file writes to its own temporary folder (`SCRATCH_DATA`). Most tests guard a rule from `CLAUDE.md`: cuts are verbatim, labels stay within limits, every change is logged with its author, model-written evidence is never counted as checked, and keys never reach the repo. `npm run test:watch` reruns tests on save.
+
+`npm run test:e2e` runs the browser flows in `e2e/` with Playwright (Chromium; `npx playwright install chromium` once): spill into cards, drag a cluster onto a level, the draft's outline and chips, and export. It starts its own server on port 5193 with the offline parser, no sign-in and no keys, writing to a temporary folder it deletes afterwards. CI runs it as its own job. `npm run audit:parse` runs the CAD talk fixture through the real parser (one API call) and reports how it clustered; use it to compare prompt changes.
 
 ## Stack, drop-in wherever possible
 
