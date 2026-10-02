@@ -9,9 +9,13 @@ export const LABEL_MAX_WORDS = 6;
 /** 'proposed' is legacy: units from before the review step was dropped. It is treated as accepted. */
 export type UnitStatus = 'proposed' | 'accepted' | 'cut';
 
+/** How an untyped idea is named wherever a type would show. */
+export const UNTYPED = 'untyped';
+
 export interface Unit {
   id: string;
-  type: UnitType;
+  /** null: untyped. An idea the writer cut by hand has no type until they pick one, or a parse assigns one. */
+  type: UnitType | null;
   /** 3-6 word concept label. The join key for clustering. */
   label: string;
   /** The user's own words, cut verbatim from the blurt. Never reworded. */
@@ -30,6 +34,8 @@ export interface Unit {
   /** 'human': the writer highlighted these words in the spill and dragged them out themselves, rather than the parser
    *  cutting them. Later parses are told so, and don't cut the same words again. Absent for parsed and adopted units. */
   cutBy?: 'human';
+  /** 'human': the writer chose where this sits, by dragging or in the note sheet. A parse never moves it. */
+  homedBy?: 'human';
   verified: boolean;
   /** Rich-text note (BlockNote document JSON). */
   note: unknown[] | null;
@@ -54,6 +60,8 @@ export interface Blurt {
   id: string;
   text: string;
   createdAt: string;
+  /** A closed spill that a parse has run over. Absent on older spills: their parsed units say so instead. */
+  parsed?: boolean;
 }
 
 export interface ProjectMeta {
@@ -63,7 +71,10 @@ export interface ProjectMeta {
 export interface Project {
   slug: string;
   meta: ProjectMeta;
+  /** Closed spills, oldest first; immutable. */
   blurts: Blurt[];
+  /** The spill box's text, saved as the writer goes; closed by a parse. */
+  open: Blurt | null;
   units: Unit[];
   board: import('./structures.ts').Board;
   draft: string;

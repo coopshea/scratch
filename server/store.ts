@@ -63,28 +63,48 @@ export function writeUnits(slug: string, units: Unit[]) {
   writeAtomic(path.join(projectDir(slug), 'units.json'), JSON.stringify(units, null, 2) + '\n');
 }
 
+/** A closed spill is parsed once a parse of it succeeded. Older documents have no marker; their units say instead. */
+const parsedMark = (slug: string, id: string) => path.join(projectDir(slug), 'blurts', `${id}.parsed`);
+export function markParsed(slug: string, id: string) { fs.writeFileSync(parsedMark(slug, id), ''); }
+
 export function listBlurts(slug: string): Blurt[] {
   const dir = path.join(projectDir(slug), 'blurts');
-  return fs.readdirSync(dir).filter((f) => f.endsWith('.md')).sort().map((f) => {
-    const id = f.slice(0, -3);
-    return { id, text: fs.readFileSync(path.join(dir, f), 'utf8'), createdAt: idToIso(id) };
-  });
+  return fs.readdirSync(dir).filter((f) => f.endsWith('.md')).sort().map((f) => getBlurt(slug, f.slice(0, -3)));
 }
 
 export function getBlurt(slug: string, id: string): Blurt {
   if (!/^[\w-]+$/.test(id)) throw new HttpError(400, 'Invalid blurt id');
   const file = path.join(projectDir(slug), 'blurts', `${id}.md`);
   if (!fs.existsSync(file)) throw new HttpError(404, 'Blurt not found');
-  return { id, text: fs.readFileSync(file, 'utf8'), createdAt: idToIso(id) };
+  return { id, text: fs.readFileSync(file, 'utf8'), createdAt: idToIso(id), ...(fs.existsSync(parsedMark(slug, id)) ? { parsed: true } : {}) };
 }
 
-/** Raw blurts are immutable: written once, never edited. */
-export function saveBlurt(slug: string, text: string): Blurt {
-  const now = new Date();
-  const id = now.toISOString().replace(/[:.]/g, '-') + '_' + newId().slice(0, 4);
-  const file = path.join(projectDir(slug), 'blurts', `${id}.md`);
-  fs.writeFileSync(file, text, { flag: 'wx' });
-  return { id, text, createdAt: now.toISOString() };
+const blurtId = (now: Date) => now.toISOString().replace(/[:.]/g, '-') + '_' + newId().slice(0, 4);
+
+/**
+ * The open spill: what is in the spill box, saved as the writer goes. One per document. Its id is fixed from the
+ * first save, so ideas cut by hand from it can point to it before it closes.
+ */
+const openFile = (slug: string) => path.join(projectDir(slug), 'spill.json');
+export function readOpenSpill(slug: string): Blurt | null {
+  return readJson<Blurt | null>(openFile(slug), null);
+}
+/** Save the box's text as the open spill, starting one if there is none. Returns null when nothing changed. */
+export function saveOpenSpill(slug: string, text: string): Blurt | null {
+  const open = readOpenSpill(slug);
+  if (open ? open.text === text : !text) return null;
+  const b: Blurt = open ? { ...open, text } : { id: blurtId(new Date()), text, createdAt: new Date().toISOString() };
+  writeAtomic(openFile(slug), JSON.stringify(b, null, 2) + '\n');
+  return b;
+}
+
+/** Close the open spill: its text is written once as a raw blurt and never edited again. Parse is the only caller. */
+export function closeOpenSpill(slug: string): Blurt | null {
+  const open = readOpenSpill(slug);
+  if (!open) return null;
+  fs.writeFileSync(path.join(projectDir(slug), 'blurts', `${open.id}.md`), open.text, { flag: 'wx' });
+  fs.rmSync(openFile(slug));
+  return { id: open.id, text: open.text, createdAt: idToIso(open.id) };
 }
 
 function idToIso(id: string) {
@@ -127,7 +147,7 @@ export function writeDraft(slug: string, text: string) {
 }
 
 export function loadProject(slug: string): Project {
-  return { slug, meta: readMeta(slug), blurts: listBlurts(slug), units: readUnits(slug), board: readBoard(slug), draft: readDraft(slug) };
+  return { slug, meta: readMeta(slug), blurts: listBlurts(slug), open: readOpenSpill(slug), units: readUnits(slug), board: readBoard(slug), draft: readDraft(slug) };
 }
 
 export function listProjects(): ProjectSummary[] {

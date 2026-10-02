@@ -3,7 +3,7 @@ import type { Project, Unit } from '../shared/types.ts';
 import { structureMap, type Board, type StructureDef } from '../shared/structures.ts';
 import { replay, type LogEvent } from '../shared/replay.ts';
 import { settle } from '../shared/clusters.ts';
-import { api, archetypes, slug } from './api.ts';
+import { api, archetypes, slug, type CutSource } from './api.ts';
 import { DocList } from './DocList.tsx';
 import { EmptyBoard } from './EmptyBoard.tsx';
 import { Draft } from './Draft.tsx';
@@ -127,15 +127,23 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Parse: closes the open spill. True once it is closed, parsed or not (a failed parse offers Try again). */
   const onBlurt = async (text: string) => {
     setBusy(true);
     try {
-      const parsed = await handleParsed(await api.blurt(text));
-      if (parsed) posthog?.capture('ideas_cut', { input_length: text.length });
-      return parsed;
+      const res = await api.blurt(text);
+      setProject((p) => (p ? { ...p, open: null } : p));
+      if (await handleParsed(res)) posthog?.capture('ideas_cut', { input_length: text.length });
+      return true;
     }
     catch (e) { setError((e as Error).message); return false; }
     finally { setBusy(false); }
+  };
+
+  // Kept here at once too, so coming back to Spill before the save returns still shows the latest words.
+  const onSaveSpill = (text: string) => {
+    setProject((p) => (p ? { ...p, open: { id: p.open?.id ?? '', createdAt: p.open?.createdAt ?? '', text } } : p));
+    api.saveSpill(text).then(({ open }) => setProject((p) => (p ? { ...p, open } : p))).catch((e) => setError(e.message));
   };
 
   const onReparse = async (id: string) => {
@@ -175,11 +183,13 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
   };
 
   /** Words the writer highlighted in the spill and dropped on the board: a new idea, theirs, under `home` or alone. */
-  const onCut = async (text: string, home: string | null) => {
+  const onCut = async (text: string, home: string | null, src: CutSource) => {
     if (history) return;
     try {
-      const u = await api.cut(text, home);
+      const u = await api.cut(text, home, src);
       setUnits((us) => [...us, u]);
+      // Cut from the box: the server saved the box first, so the open spill is what was sent.
+      if ('spill' in src) setProject((p) => (p ? { ...p, open: p.open ? { ...p.open, text: src.spill } : { id: u.blurtId ?? '', text: src.spill, createdAt: u.createdAt } } : p));
       posthog?.capture('idea_cut_by_hand', { nested: !!u.home });
     } catch (e) { setError((e as Error).message); }
   };
@@ -237,7 +247,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
         {past && history
           ? <History events={history.events} count={history.count} onCount={(count) => setHistory({ ...history, count })}
               units={past.units} selectedId={selectedId} onSelect={setSelectedId} />
-          : <Talk units={units} blurts={blurts} busy={busy} error={error} failedBlurtId={failedBlurtId}
+          : <Talk units={units} blurts={blurts} open={project.open} onSaveSpill={onSaveSpill} busy={busy} error={error} failedBlurtId={failedBlurtId}
               outOfCredits={outOfCredits} billing={billing} onBlurt={onBlurt} onReparse={onReparse} sheetOpen={!!selected}
               onAdopt={reading !== null && units.some((u) => u.status !== 'cut') ? onAdopt : undefined} readwiseOff={readwiseOff} />}
         <section className="canvas" {...(history ? {} : drop)}>

@@ -6,7 +6,8 @@ import type { Unit, UnitType } from './types.ts';
  * Something that belongs to a root never holds pieces itself.
  */
 export const HOLDER_TYPES: readonly UnitType[] = ['claim', 'question'];
-export const canHold = (t: UnitType) => HOLDER_TYPES.includes(t);
+/** An untyped idea can hold pieces too: it may yet be typed a claim or question, and the writer may group under it first. */
+export const canHold = (t: UnitType | null) => t === null || HOLDER_TYPES.includes(t);
 
 /** A root: a claim or question that belongs to nothing. */
 export const isRoot = (u: Pick<Unit, 'type' | 'home'>) => canHold(u.type) && !u.home;

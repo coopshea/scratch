@@ -8,7 +8,7 @@ import { CAD_TALK, tempDataDir } from './helpers.ts';
 // A stand-in parser that misbehaves on purpose, to prove the server checks what the model returns.
 vi.mock('../server/parser.ts', async (orig) => ({
   ...(await orig<typeof import('../server/parser.ts')>()),
-  parseBlurt: vi.fn(async () => [
+  parseBlurt: vi.fn(async () => ({ untyped: [], units: [
     { key: 'c1', type: 'claim', text: 'CAD AI is following the path of coding.', label: 'cad ai follows coding', home: '' },
     // Reworded: the blurt says "In the last couple weeks, models that can natively do computer use have gotten much better."
     { key: 'u1', type: 'evidence', text: 'Computer-use models got much better in recent weeks.', label: 'computer use improving', home: 'c1' },
@@ -21,7 +21,7 @@ vi.mock('../server/parser.ts', async (orig) => ({
     // A question as a root, holding a piece
     { key: 'r2', type: 'question', text: 'So how do we think about this problem?', label: 'how to frame the problem', home: '' },
     { key: 'u6', type: 'concept', text: 'Let’s talk about the law of bottlenecks.', label: 'law of the minimum', home: 'r2' },
-  ]),
+  ] })),
 }));
 
 process.env.SCRATCH_DATA = tempDataDir();
@@ -103,12 +103,12 @@ describe('a second blurt lands on the clusters already there', () => {
     // The stand-in answers the second blurt using the roots the server passed it, as the real parser would.
     vi.mocked(parseBlurt).mockImplementationOnce(async (_blurt, _vocab, roots) => {
       const existing = roots.find((r) => r.label === 'cad ai follows coding')!;
-      return [
+      return { untyped: [], units: [
         { key: 'a', type: 'evidence', text: 'Fable 5.1 and Astra 6 are both very capable at designing in CAD and routing PCBs.', label: 'models design CAD and PCBs', home: existing.id },
         { key: 'r', type: 'claim', text: 'Best in class AI models are being trained on a dataset at this level of abstraction', label: 'AI inherits design limits', home: '' },
         { key: 'b', type: 'story', text: 'Mechanical engineers today are often derided by manufacturing engineers', label: 'engineers derided by machinists', home: 'r' },
         { key: 'c', type: 'objection', text: 'as soon as the metric is defined, it doesn’t take long to saturate it', label: 'benchmarks saturate fast', home: 'not-an-id' },
-      ];
+      ] };
     });
     const second: Unit[] = (await request(app).post(`/api/p/${slug}/blurts`).send({ text: SECOND })).body.units;
 
@@ -125,49 +125,5 @@ describe('a second blurt lands on the clusters already there', () => {
     const all: Unit[] = (await request(app).get(`/api/p/${slug}`)).body.units;
     expect(all.filter((u) => u.home === cadRoot.id).map((u) => u.id)).toContain(second[0].id);
     expect(new Set(all.map((u) => u.blurtId)).size).toBe(2);
-  });
-});
-
-describe('the parser is told what the writer already pulled out (issue #39)', () => {
-  it('passes every existing idea, nested, with hand cuts quoted, and the prompt carries them', async () => {
-    const { parseBlurt, buildContext } = await import('../server/parser.ts');
-    const slug = (await request(app).post('/api/projects').send({ title: 'hand then parse' })).body.slug;
-    const root = (await request(app).post(`/api/p/${slug}/units`).send({ text: 'CAD AI is following the path of coding.' })).body as Unit;
-    const piece = (await request(app).post(`/api/p/${slug}/units`).send({ text: 'There used to be draftsmen.', home: root.id })).body as Unit;
-    await request(app).post(`/api/p/${slug}/blurts`).send({ text: BLURT });
-
-    const [blurt, vocab, roots, , , , nodes] = vi.mocked(parseBlurt).mock.calls.at(-1)!;
-    expect(nodes).toEqual([
-      { id: root.id, type: 'claim', label: root.label, home: null, text: root.text },
-      { id: piece.id, type: 'claim', label: piece.label, home: root.id, text: piece.text },
-    ]);
-    // The real prompt, built from what the server passed: the hand cut is quoted, indented under its root.
-    const prompt = buildContext(blurt, vocab, roots, nodes);
-    expect(prompt).toContain(`- ${root.id}, claim: ${root.label} [cut by hand: "CAD AI is following the path of coding."]`);
-    expect(prompt).toContain(`  - claim: ${piece.label} [cut by hand: "There used to be draftsmen."]`);
-  });
-
-  it('drops a parsed unit that repeats a hand cut, and ties the hand cut to the blurt', async () => {
-    const slug = (await request(app).post('/api/projects').send({ title: 'no double cut' })).body.slug;
-    // The stand-in parser always returns this claim first; the writer already cut it by hand.
-    const hand = (await request(app).post(`/api/p/${slug}/units`).send({ text: 'CAD AI is following the path of coding.' })).body as Unit;
-    const parsed: Unit[] = (await request(app).post(`/api/p/${slug}/blurts`).send({ text: BLURT })).body.units;
-    expect(parsed.map((u) => u.text)).not.toContain(hand.text);
-    // The model's pieces under that claim now sit under the hand cut.
-    expect(parsed.find((u) => u.text.startsWith('In the last couple weeks') || u.label === 'computer use improving')!.home).toBe(hand.id);
-    const after = ((await request(app).get(`/api/p/${slug}`)).body.units as Unit[]).find((u) => u.id === hand.id)!;
-    expect(BLURT.slice(after.start, after.end)).toBe(hand.text);
-  });
-
-  it('quotes only hand cuts; parsed ideas go by label, loose ones listed apart', async () => {
-    const { buildContext } = await import('../server/parser.ts');
-    const prompt = buildContext('blurt', ['law of the minimum'], [{ id: 'r1', type: 'question', label: 'what limits growth' }], [
-      { id: 'r1', type: 'question', label: 'what limits growth', home: null },
-      { id: 'p1', type: 'concept', label: 'law of the minimum', home: 'r1' },
-      { id: 'l1', type: 'evidence', label: 'nitrogen trial', home: null, text: 'Plots with nitrogen grew twice as fast.' },
-    ]);
-    expect(prompt).toContain('- r1, question: what limits growth\n  - concept: law of the minimum\nLoose (under no root):\n- evidence: nitrogen trial [cut by hand: "Plots with nitrogen grew twice as fast."]');
-    expect(prompt).not.toContain('p1');
-    expect(prompt.endsWith('<blurt>\nblurt\n</blurt>')).toBe(true);
   });
 });

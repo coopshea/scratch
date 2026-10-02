@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Unit } from '../shared/types.ts';
 import { isRoot, pickVisible } from '../shared/clusters.ts';
-import { TYPE_INK } from './typeStyle.ts';
+import { inkOf } from './typeStyle.ts';
 import { layoutCard, masonry, type Dim } from './cards.ts';
 import { UNIT } from './spillDrag.ts';
 
@@ -197,15 +197,15 @@ export function Graph({ units, selectedId, onSelect, movable }: Props) {
         {live.map((u) => {
           const mini = hidden.has(u.id);
           const root = kidsOf.has(u.id);
-          const cls = ['unit', isRoot(u) ? 'is-claim' : '', root || (u.home && liveIds.has(u.home)) ? 'clustered' : 'solo', mini ? 'collapsed' : '',
+          const cls = ['unit', isRoot(u) && u.type ? 'is-claim' : '', u.type ? '' : 'untyped', root || (u.home && liveIds.has(u.home)) ? 'clustered' : 'solo', mini ? 'collapsed' : '',
             u.origin === 'model' ? 'is-model' : '', u.id === selectedId ? 'is-selected' : '', inFocus(u) ? '' : 'dim'].join(' ');
           return (
-            <div key={u.id} className={cls} data-type={u.type} data-drop={u.id} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}
+            <div key={u.id} className={cls} data-type={u.type ?? undefined} data-drop={u.id} style={{ '--c': inkOf(u.type) } as React.CSSProperties}
               draggable={movable} onDragStart={(e) => { e.dataTransfer.setData(UNIT, u.id); e.dataTransfer.effectAllowed = 'move'; }}
               ref={(el) => { if (el) nodeEls.current.set(u.id, el); else nodeEls.current.delete(u.id); }}
               onPointerDown={(e) => e.stopPropagation()} onClick={() => onSelect(u.id)}>
               {!mini && <>
-                {!(u.type === 'claim' && !u.home) && <span className="kind">{u.type}</span>}
+                {u.type && !(u.type === 'claim' && !u.home) && <span className="kind">{u.type}</span>}
                 <span className="lbl">{u.label}</span>
                 {u.source && <span className="src">{u.source.title || 'Readwise'}</span>}
               </>}

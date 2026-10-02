@@ -17,10 +17,20 @@ const ParsedUnit = z.object({
   label: z.string().describe('3 to 6 word concept label, at most 40 characters'),
   home: z.string().describe('Key of the root claim or question in this response, or id of an existing root, that this unit belongs to. Empty string for a root, or if nothing fits'),
 });
-const ParseResult = z.object({ units: z.array(ParsedUnit) });
+const Typed = z.object({
+  id: z.string().describe('Id of an existing untyped idea'),
+  type: z.enum(UNIT_TYPES),
+  home: z.string().describe('Key of a root in this response, or id of an existing root, if the idea has no home yet and one fits; otherwise empty string'),
+});
+const ParseResult = z.object({
+  units: z.array(ParsedUnit),
+  untyped: z.array(Typed).describe('One entry for each existing idea listed as untyped'),
+});
 export type ParsedUnit = z.infer<typeof ParsedUnit>;
+export type TypedIdea = z.infer<typeof Typed>;
+export type ParseOutput = { units: ParsedUnit[]; untyped: TypedIdea[] };
 
-const SYSTEM = `You cut a writer's brain dump ("blurt") into units for a drafting tool. You never write, reword, summarize, or improve their prose.
+export const SYSTEM = `You cut a writer's brain dump ("blurt") into units for a drafting tool. You never write, reword, summarize, or improve their prose.
 
 For each unit:
 - text: an exact contiguous substring of the blurt, copied character for character. You may trim filler words from the start or end of a span, but never change, reorder, or drop words inside it. If an idea is spread across non-adjacent sentences, make separate units.
@@ -38,7 +48,9 @@ For each unit:
 
 Prefer fewer, broader roots. A root gathers the pieces of one thread, the way a heading gathers a pile of sticky notes. A page of notes usually has about 3 to 7 threads; use more only when the blurt truly covers more. Do not make every assertion a root.
 
-The writer's existing ideas are listed below, nested as they stand: each root with its pieces indented beneath it, then loose ones. Some were cut by hand: the writer highlighted those words and pulled them out before you saw the blurt, and their words are quoted. Never cut those words again, even inside a longer span; cut only what is not already there. Make new units fit around the existing ideas: put a piece under the existing root it belongs to rather than starting a duplicate root.
+The writer's existing ideas are listed below as they stand: each root with its pieces indented beneath it, then loose ones, each with its id, type, label and words. Ideas marked "already cut, do not cut again" were cut by hand: the writer highlighted those words and pulled them out themselves. Never cut those words again, even inside a longer span; cut only what is not already there. When something in the blurt is a variation on an existing idea, give the new unit that idea's root as its home (the idea itself if it is a root) instead of starting a new root. Never merge text into existing ideas or change their words.
+
+untyped: some existing ideas are listed as untyped. For each one, return its id and a type, and a home (a root key in this response or an existing root id) if it has no root yet and one fits; otherwise an empty home. An untyped idea that already has pieces under it is a root: type it claim or question.
 
 Reuse labels: if a unit expresses the same concept as a label in the existing vocabulary, use that label exactly. Only coin a new label when none fits.
 
@@ -91,33 +103,32 @@ function offlineParse(blurt: string): ParsedUnit[] {
   });
 }
 
-/** An idea already in the document, as the parser sees it. `text` is set only for ideas the writer cut by hand. */
-export type ExistingNode = { id: string; type: string; label: string; home: string | null; text?: string };
-/** Hand-cut words shown to the parser are capped, so one long highlight can't swell every later parse. */
-const HAND_QUOTE_MAX = 400;
+/** An idea already in the document, as the parser sees it. A null type is untyped; `hand` marks the writer's own cut. */
+export type ExistingNode = { id: string; type: string | null; label: string; home: string | null; text: string; hand?: boolean };
+/** Words shown per idea are capped, so one long idea can't swell every later parse. */
+const QUOTE_MAX = 300;
 
 /**
- * The parser's user message: the vocabulary, the existing ideas nested as they stand (roots by id, so new pieces
- * can join them; the writer's hand cuts quoted, so they aren't cut twice), then the blurt.
+ * The parser's user message: the vocabulary, every existing idea as it stands (roots with their pieces beneath,
+ * then loose ones; each with id, type or untyped, label and words; hand cuts marked so they aren't cut twice),
+ * then the blurt.
  */
-export function buildContext(blurt: string, vocab: string[], roots: { id: string; type: string; label: string }[], nodes: ExistingNode[] = []): string {
+export function buildContext(blurt: string, vocab: string[], roots: { id: string }[], nodes: ExistingNode[] = []): string {
   const rootIds = new Set(roots.map((r) => r.id));
-  const line = (n: ExistingNode, indent: string, withId: boolean) => {
-    const quote = n.text !== undefined ? ` [cut by hand: "${n.text.length > HAND_QUOTE_MAX ? `${n.text.slice(0, HAND_QUOTE_MAX)}…` : n.text}"]` : '';
-    return `${indent}- ${withId ? `${n.id}, ` : ''}${n.type}: ${n.label}${quote}`;
+  const line = (n: ExistingNode, indent: string) => {
+    const words = n.text.length > QUOTE_MAX ? `${n.text.slice(0, QUOTE_MAX)}…` : n.text;
+    return `${indent}- ${n.id}, ${n.type ?? 'untyped'}: ${n.label} — "${words.replace(/\s+/g, ' ').trim()}"${n.hand ? ' [already cut, do not cut again]' : ''}`;
   };
-  const byId = new Map(nodes.map((n) => [n.id, n]));
   const tree: string[] = [];
-  for (const r of roots) {
-    const n = byId.get(r.id) ?? { ...r, home: null };
-    tree.push(line(n, '', true));
-    for (const k of nodes.filter((x) => x.home === r.id)) tree.push(line(k, '  ', false));
+  for (const r of nodes.filter((n) => rootIds.has(n.id))) {
+    tree.push(line(r, ''));
+    for (const k of nodes.filter((x) => x.home === r.id)) tree.push(line(k, '  '));
   }
   const loose = nodes.filter((n) => !rootIds.has(n.id) && !(n.home && rootIds.has(n.home)));
-  if (loose.length) tree.push('Loose (under no root):', ...loose.map((n) => line(n, '', false)));
+  if (loose.length) tree.push('Loose (under no root):', ...loose.map((n) => line(n, '')));
   return [
     vocab.length ? `Existing vocabulary:\n${vocab.map((v) => `- ${v}`).join('\n')}` : 'Existing vocabulary: none yet.',
-    tree.length ? `Existing ideas (roots as id, type: label; their pieces indented beneath):\n${tree.join('\n')}` : 'Existing ideas: none yet.',
+    tree.length ? `Existing ideas (id, type: label — "words"; pieces indented under their root):\n${tree.join('\n')}` : 'Existing ideas: none yet.',
     `<blurt>\n${blurt}\n</blurt>`,
   ].join('\n\n');
 }
@@ -125,16 +136,18 @@ export function buildContext(blurt: string, vocab: string[], roots: { id: string
 export async function parseBlurt(
   blurt: string,
   vocab: string[],
-  roots: { id: string; type: string; label: string }[],
+  roots: { id: string; type: string | null; label: string }[],
   apiKey?: string, // the writer's own key on the hosted site; otherwise the server's
   onUsage?: (u: Usage) => void, // what the parse cost, for metering the hosted site
   ai?: AiContext,
-  nodes: ExistingNode[] = [], // every idea already in the document, nested, with hand cuts quoted
-): Promise<ParsedUnit[]> {
+  nodes: ExistingNode[] = [], // every idea already in the document, as it stands, hand cuts marked
+): Promise<ParseOutput> {
   if (process.env.PARSER === 'offline') {
     // No API call, but a stand-in cost so metering can be tested: roughly a real parse of this length.
     onUsage?.(usageOf('claude-opus-5-5', 1500 + Math.ceil(blurt.length / 4), Math.ceil(blurt.length / 2)));
-    return offlineParse(blurt);
+    // Untyped ideas: a question mark makes a question, anything else a claim; no home. A stand-in, like the rest.
+    const untyped = nodes.filter((n) => n.type === null).map((n) => ({ id: n.id, type: n.text.trim().endsWith('?') ? 'question' as const : 'claim' as const, home: '' }));
+    return { units: offlineParse(blurt), untyped };
   }
   const context = buildContext(blurt, vocab, roots, nodes);
 
@@ -178,7 +191,7 @@ export async function parseBlurt(
   if (response.stop_reason === 'refusal') throw new ParseFailure('The model declined to parse this blurt.');
   if (response.stop_reason === 'max_tokens') throw new ParseFailure('The blurt was too long to parse in one pass. Split it and try again.');
   if (!response.parsed_output) throw new ParseFailure('The parser returned output that did not match the schema.');
-  return response.parsed_output.units;
+  return response.parsed_output;
 }
 
 /**

@@ -230,6 +230,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .unit.is-claim { padding: 8px 12px 9px; border-color: var(--ink); }
 .unit.is-claim .lbl { font-size: 15px; line-height: 20px; }
 .unit.is-selected { outline: 2px solid var(--ink); outline-offset: 2px; }
+/* Untyped (cut by hand, no type picked yet): no tag, a dashed edge, until the writer or a parse gives it a type. */
+.unit.untyped { border-style: dashed; border-color: var(--line-strong); }
 .unit .tip { display: none; position: absolute; z-index: 40; top: calc(100% + 8px); left: 0; width: 300px; padding: 10px 12px; background: var(--card);
   border: 1px solid var(--line); border-radius: var(--radius-control); box-shadow: var(--shadow-lift); color: var(--ink); font: italic 400 15px/23px var(--serif);
   cursor: default; }

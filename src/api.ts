@@ -16,6 +16,8 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+/** Where hand-cut words came from: the spill box (its whole text, saved first), or a closed spill at known offsets. */
+export type CutSource = { spill: string } | { from: { blurtId: string; start: number; end: number } };
 export type ParseResponse = { blurt: Blurt; units: Unit[]; error?: string; buy?: boolean };
 /** A passage from the writer's reading: the source's words, and the writer's note on them. */
 export type Passage = { id: string; quote: string; note: string; title: string; author: string; url: string | null };
@@ -30,8 +32,10 @@ export const api = {
   saveDraft: (text: string) => call<{ ok: true }>('/draft', { method: 'PUT', body: JSON.stringify({ text }) }),
   blurt: (text: string) => call<ParseResponse>('/blurts', { method: 'POST', body: JSON.stringify({ text }) }),
   reparse: (id: string) => call<ParseResponse>(`/blurts/${id}/parse`, { method: 'POST' }),
-  /** An idea cut by hand from the spill: the highlighted words, under `home`'s cluster or alone. */
-  cut: (text: string, home: string | null) => call<Unit>('/units', { method: 'POST', body: JSON.stringify({ text, home }) }),
+  /** The spill box's text, saved as the open spill. */
+  saveSpill: (text: string) => call<{ open: Blurt | null }>('/spill', { method: 'PUT', body: JSON.stringify({ text }) }),
+  /** An idea cut by hand: the highlighted words, under `home`'s cluster or alone. From the box, `spill` is the box's text. */
+  cut: (text: string, home: string | null, src: CutSource) => call<Unit>('/units', { method: 'POST', body: JSON.stringify({ text, home, ...src }) }),
   patch: (id: string, patch: Partial<Unit>) => call<Unit>(`/units/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   readwise: {
     status: async () => (await fetch('/api/readwise/status')).json() as Promise<{ token: boolean; search: boolean }>,

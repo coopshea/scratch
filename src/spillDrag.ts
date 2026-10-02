@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import type { Unit } from '../shared/types.ts';
 import { nestTarget } from '../shared/clusters.ts';
+import type { CutSource } from './api.ts';
 
 /**
  * Dragging onto the Spill board, with the browser's own drag and drop: words highlighted in the spill box (the
@@ -8,13 +9,15 @@ import { nestTarget } from '../shared/clusters.ts';
  * Dropped on an idea, it nests under that idea's cluster; dropped on open board, it stands alone.
  */
 export const CUT = 'application/x-scratch-cut';
+/** With CUT from the spill box: the box's whole text, so the server saves it before the cut points to it. */
+export const SPILL = 'application/x-scratch-spill';
 export const UNIT = 'application/x-scratch-unit';
 
 const targetOf = (e: React.DragEvent) => (e.target as Element).closest<HTMLElement>('[data-drop]');
 
 export function useBoardDrop({ units, onCut, onNest }: {
   units: Unit[];
-  onCut: (text: string, home: string | null) => void;
+  onCut: (text: string, home: string | null, src: CutSource) => void;
   onNest: (id: string, home: string | null) => void;
 }) {
   const lit = useRef<HTMLElement | null>(null);
@@ -50,7 +53,7 @@ export function useBoardDrop({ units, onCut, onNest }: {
       const on = targetOf(e)?.dataset.drop ?? null;
       clear();
       const text = e.dataTransfer.getData(CUT);
-      if (text.trim()) { onCut(text, nestTarget(units, on) ?? null); return; }
+      if (text.trim()) { onCut(text, nestTarget(units, on) ?? null, { spill: e.dataTransfer.getData(SPILL) }); return; }
       const id = e.dataTransfer.getData(UNIT);
       const moving = units.find((u) => u.id === id);
       if (!moving) return;
