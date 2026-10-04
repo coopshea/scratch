@@ -1,11 +1,11 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { Blurt, Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import { api, type Suggestion } from './api.ts';
 import { PassageRow } from './Passage.tsx';
 import type { Billing } from './App.tsx';
 import { Icon } from './icons.tsx';
-import { CUT, SPILL } from './spillDrag.ts';
+import { CUT, dragAsCard, SPILL } from './spillDrag.ts';
 import { Spills } from './Spills.tsx';
 import { NeedsReadwise, type ReadwiseOff } from './ReadwiseOff.tsx';
 
@@ -86,13 +86,8 @@ export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlur
     if (await onBlurt(text)) { saved.current = ''; setText(''); }
   };
 
-  // The page opens at the box, under everything already spilled.
-  const page = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => { if (page.current) page.current.scrollTop = page.current.scrollHeight; }, [blurts.length]);
-
   return (
-    <div className="talk" ref={page}>
-      <Spills blurts={blurts} units={units} onSelect={onSelect} />
+    <div className="talk">
       <div className="spill-box">
         <textarea
           ref={box}
@@ -103,7 +98,9 @@ export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlur
           // Highlighted words dragged out to the board become an idea, in these exact words (spillDrag.ts).
           onDragStart={(e) => {
             const t = e.currentTarget, words = t.value.slice(t.selectionStart, t.selectionEnd);
-            if (words.trim()) { e.dataTransfer.setData(CUT, words); e.dataTransfer.setData(SPILL, t.value); e.dataTransfer.effectAllowed = 'copy'; }
+            if (!words.trim()) return;
+            e.dataTransfer.setData(CUT, words); e.dataTransfer.setData(SPILL, t.value); e.dataTransfer.effectAllowed = 'copy';
+            dragAsCard(e, words);
           }}
           disabled={busy}
           autoFocus
@@ -191,6 +188,8 @@ export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlur
           <button className="link" onClick={() => onReparse(b.id)} disabled={busy}>cut into ideas</button>
         </div>
       ))}
+      {/* Below the bar, folded: the box keeps the column. */}
+      <Spills blurts={blurts} units={units} onSelect={onSelect} />
     </div>
   );
 }

@@ -15,6 +15,39 @@ export const SPILL = 'application/x-scratch-spill';
 export const SPAN = 'application/x-scratch-span';
 export const UNIT = 'application/x-scratch-unit';
 
+/** The longest selection shown whole in the drag card; past it, the card ends in an ellipsis. */
+const CARD_CHARS = 140;
+
+/**
+ * Picked-up words look like what they become: a card like the board's (its own classes), holding the words. The
+ * card must be in the page while dragstart runs (Safari needs it there), so it sits offscreen and goes a frame later.
+ */
+export function dragAsCard(e: React.DragEvent, words: string) {
+  const card = document.createElement('div');
+  card.className = 'unit untyped drag-card';
+  const lbl = document.createElement('span');
+  lbl.className = 'lbl';
+  const flat = words.replace(/\s+/g, ' ').trim();
+  lbl.textContent = flat.length > CARD_CHARS ? `${flat.slice(0, CARD_CHARS).trimEnd()}…` : flat;
+  card.appendChild(lbl);
+  document.body.appendChild(card);
+  e.dataTransfer.setDragImage(card, 14, 14);
+  window.setTimeout(() => card.remove(), 0);
+}
+
+/**
+ * Hovering an earlier spill (or one of its cuts) raises the ideas that came from it on the board and quiets the rest.
+ * Attributes on the board's own elements, so nothing re-renders; null clears it.
+ */
+export function linkIdeas(ids: string[] | null) {
+  const board = document.querySelector<HTMLElement>('.graph');
+  if (!board) return;
+  board.querySelectorAll('[data-linked]').forEach((el) => el.removeAttribute('data-linked'));
+  if (!ids) { board.removeAttribute('data-linking'); return; }
+  board.setAttribute('data-linking', '');
+  for (const id of ids) board.querySelector(`.unit[data-drop="${CSS.escape(id)}"]`)?.setAttribute('data-linked', '');
+}
+
 const targetOf = (e: React.DragEvent) => (e.target as Element).closest<HTMLElement>('[data-drop]');
 
 export function useBoardDrop({ units, onCut, onNest }: {
