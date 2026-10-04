@@ -9,12 +9,9 @@ import { posthog } from './posthog.ts';
 /** Only shortcuts that exist. Keep in step with the handlers (Talk, NoteSheet, Draft, LevelPicker, Structure). */
 const SHORTCUTS: [keys: string[], what: string][] = [
   [['⌘', '↵'], 'Parse writing'],
-  [['⌘', '⇧', 'E'], 'From your reading, in a note'],
-  [['1', '–', '5'], 'Pick a passage'],
-  [['Esc'], 'Close a note or list'],
+  [['⌘', '⇧', 'E'], 'Find Readwise highlights related to the open idea'],
+  [['1', '–', '9'], 'Add that Readwise highlight to the idea as evidence'],
   [['/'], 'Blocks, in a note or the draft'],
-  [['⌘', 'Z'], 'Undo in the draft'],
-  [['⌘', '⇧', 'Z'], 'Redo in the draft'],
   [['⌘', 'A', '⌘', 'A'], 'Select the whole draft'],
   [['Tab'], 'Take the top match, adding a level'],
 ];
