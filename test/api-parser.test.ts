@@ -8,7 +8,7 @@ import { CAD_TALK, tempDataDir } from './helpers.ts';
 // A stand-in parser that misbehaves on purpose, to prove the server checks what the model returns.
 vi.mock('../server/parser.ts', async (orig) => ({
   ...(await orig<typeof import('../server/parser.ts')>()),
-  parseBlurt: vi.fn(async () => [
+  parseBlurt: vi.fn(async () => ({ untyped: [], units: [
     { key: 'c1', type: 'claim', text: 'CAD AI is following the path of coding.', label: 'cad ai follows coding', home: '' },
     // Reworded: the blurt says "In the last couple weeks, models that can natively do computer use have gotten much better."
     { key: 'u1', type: 'evidence', text: 'Computer-use models got much better in recent weeks.', label: 'computer use improving', home: 'c1' },
@@ -21,7 +21,7 @@ vi.mock('../server/parser.ts', async (orig) => ({
     // A question as a root, holding a piece
     { key: 'r2', type: 'question', text: 'So how do we think about this problem?', label: 'how to frame the problem', home: '' },
     { key: 'u6', type: 'concept', text: 'Let’s talk about the law of bottlenecks.', label: 'law of the minimum', home: 'r2' },
-  ]),
+  ] })),
 }));
 
 process.env.SCRATCH_DATA = tempDataDir();
@@ -103,12 +103,12 @@ describe('a second blurt lands on the clusters already there', () => {
     // The stand-in answers the second blurt using the roots the server passed it, as the real parser would.
     vi.mocked(parseBlurt).mockImplementationOnce(async (_blurt, _vocab, roots) => {
       const existing = roots.find((r) => r.label === 'cad ai follows coding')!;
-      return [
+      return { untyped: [], units: [
         { key: 'a', type: 'evidence', text: 'Fable 5.1 and Astra 6 are both very capable at designing in CAD and routing PCBs.', label: 'models design CAD and PCBs', home: existing.id },
         { key: 'r', type: 'claim', text: 'Best in class AI models are being trained on a dataset at this level of abstraction', label: 'AI inherits design limits', home: '' },
         { key: 'b', type: 'story', text: 'Mechanical engineers today are often derided by manufacturing engineers', label: 'engineers derided by machinists', home: 'r' },
         { key: 'c', type: 'objection', text: 'as soon as the metric is defined, it doesn’t take long to saturate it', label: 'benchmarks saturate fast', home: 'not-an-id' },
-      ];
+      ] };
     });
     const second: Unit[] = (await request(app).post(`/api/p/${slug}/blurts`).send({ text: SECOND })).body.units;
 

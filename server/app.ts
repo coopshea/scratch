@@ -7,18 +7,18 @@ import { checkKeyShape, checkReadwiseShape, FREE_PARSES, MAX_ACCOUNTS, type Acco
 import { CREDIT_MICROS, DONATION_CENTS, MAX_CENTS, MIN_CENTS, STRIPE_FEE, type Back, type Billing } from './billing.ts';
 import type { Usage } from './parser.ts';
 import { captureServerError } from './posthog.ts';
-import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
+import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ExistingNode, type ParsedUnit } from './parser.ts';
 import {
-  appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
-  listBlurts, withLock, writeBoard, writeDraft, writeMeta, writeUnits,
+  appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset,
+  closeOpenSpill, listBlurts, markParsed, readOpenSpill, saveOpenSpill, withLock, writeBoard, writeDraft, writeMeta, writeUnits,
 } from './store.ts';
 import { outlineToStructure, slugify, structureMap, STRUCTURES, type Board, type Lane } from '../shared/structures.ts';
 import { UNIT_TYPES as TYPES } from '../shared/types.ts';
 import { toMarkdown } from '../shared/export.ts';
 import * as readwise from './readwise.ts';
 import { cutLabel, locate } from './text.ts';
-import { canHold, canHoldUnit, isRoot, settle } from '../shared/clusters.ts';
-import { labelProblem, UNIT_TYPES, type Blurt, type Unit } from '../shared/types.ts';
+import { canHold, canHoldUnit, isRoot, nestTarget, settle } from '../shared/clusters.ts';
+import { labelProblem, UNIT_TYPES, type Blurt, type Unit, type UnitType } from '../shared/types.ts';
 
 /**
  * The hosted site: who is signed in (Clerk in production, a stand-in in tests) and their account.
@@ -38,6 +38,7 @@ export type Hosted = {
 // output ceiling and fail anyway; it also bounds what one parse costs (roughly 2 to 20 cents).
 export const BLURT_MAX = 14_000;
 const SAVE_MAX = 200_000; // not even saved beyond this
+const HAND_CUT_MAX = 5_000; // one highlighted idea, not a whole spill
 /** Spill suggestions: threads searched, passages offered per thread, the most offered, and how close a match must be. */
 const PULL_THREADS = 7, PULL_PER_THREAD = 3, PULL_MAX = 10, PULL_MIN_SCORE = 0.02;
 
@@ -335,11 +336,18 @@ export function createApp(hosted?: Hosted): Express {
     const live = before.filter((u) => u.status !== 'cut');
     const vocab = [...new Set(live.map((u) => u.label))];
     const roots = live.filter(isRoot).map((u) => ({ id: u.id, type: u.type, label: u.label }));
+    // Every idea already here, as it stands, so the parser builds around it; the writer's own cuts are marked so they aren't cut twice.
+    const nodes: ExistingNode[] = live.map((u) => ({
+      id: u.id, type: u.type, label: u.label, home: u.home, text: u.text, ...(u.cutBy === 'human' ? { hand: true } : {}),
+    }));
 
-    const parsed = await parseBlurt(blurt.text, vocab, roots, apiKey, onUsage, { projectId: slug, distinctId });
+    const out = await parseBlurt(blurt.text, vocab, roots, apiKey, onUsage, { projectId: slug, distinctId }, nodes);
+    const parsed = out.units;
 
     return withLock(slug, () => {
       const units = readUnits(slug);
+      // The writer's own cuts from this spill, by position: located when the spill closed.
+      const handSpans = units.filter((u) => u.cutBy === 'human' && u.status !== 'cut' && u.blurtId === blurt.id && u.start >= 0);
       // Controlled vocabulary: the first spelling of a label wins, including within this parse.
       const byLabel = new Map<string, string>();
       for (const u of units) if (!byLabel.has(u.label.toLowerCase())) byLabel.set(u.label.toLowerCase(), u.label);
@@ -347,17 +355,28 @@ export function createApp(hosted?: Hosted): Express {
       const keyToId = new Map<string, string>();
       parsed.forEach((p) => keyToId.set(p.key, newId()));
       const byKey = new Map(parsed.map((p) => [p.key, p]));
+      const locOf = new Map(parsed.map((p) => [p.key, locate(blurt.text, p.text)]));
+      // Words already cut aren't cut again: a parsed unit whose span overlaps a hand cut's is dropped, and pieces the
+      // model hung under it go to the hand cut's cluster.
+      const repeats = new Map<string, Unit>();
+      for (const p of parsed) {
+        const loc = locOf.get(p.key);
+        const hand = loc && handSpans.find((h) => loc[0] < h.end && h.start < loc[1]);
+        if (hand) repeats.set(p.key, hand);
+      }
       // One level deep: a piece belongs to a root. If the model nests deeper, the piece moves up to that root.
-      const parentOf = (p: ParsedUnit, seen = new Set<string>()): string | null => {
+      const parentOf = (p: Pick<ParsedUnit, 'key' | 'home'>, seen = new Set<string>()): string | null => {
         if (!p.home || seen.has(p.key)) return null;
         seen.add(p.key);
         const local = byKey.get(p.home);
+        const hand = local && repeats.get(local.key);
+        if (hand) return rootIds.has(hand.id) ? hand.id : hand.home && rootIds.has(hand.home) ? hand.home : null;
         if (local && local.key !== p.key && canHold(local.type)) return parentOf(local, seen) ?? keyToId.get(local.key)!;
         return rootIds.has(p.home) ? p.home : null;
       };
 
-      const created: Unit[] = parsed.map((p: ParsedUnit) => {
-        const loc = locate(blurt.text, p.text);
+      const created: Unit[] = parsed.filter((p) => !repeats.has(p.key)).map((p: ParsedUnit) => {
+        const loc = locOf.get(p.key);
         const key = p.label.trim().toLowerCase();
         if (!byLabel.has(key)) byLabel.set(key, p.label.trim());
         const label = byLabel.get(key)!;
@@ -381,10 +400,62 @@ export function createApp(hosted?: Hosted): Express {
         };
       });
 
-      writeUnits(slug, [...units, ...created]);
-      appendEvent(slug, 'model', 'parse', { blurtId: blurt.id, units: created });
+      // The same call types and groups untyped ideas. Only what the writer hasn't set: a type where there is none
+      // (an idea already holding pieces only becomes something that can hold them), and a home where there is none
+      // and the writer didn't choose that by dragging.
+      const all = [...units, ...created];
+      const typed: { id: string; patch: Partial<Unit> }[] = [];
+      for (const t of out.untyped) {
+        const u = units.find((x) => x.id === t.id && x.status !== 'cut' && x.type === null);
+        if (!u || !UNIT_TYPES.includes(t.type)) continue;
+        const holds = all.some((x) => x.home === u.id && x.status !== 'cut');
+        const patch: Partial<Unit> = {};
+        if (!holds || canHold(t.type)) patch.type = t.type;
+        const home = !u.home && u.homedBy !== 'human' && !holds ? parentOf({ key: `untyped:${u.id}`, home: t.home }) : null;
+        if (home && home !== u.id) patch.home = home;
+        if (!Object.keys(patch).length) continue;
+        Object.assign(u, patch);
+        typed.push({ id: u.id, patch });
+      }
+
+      writeUnits(slug, all);
+      markParsed(slug, blurt.id);
+      const skipped = [...repeats].map(([key, h]) => ({ text: byKey.get(key)!.text, start: locOf.get(key)![0], end: locOf.get(key)![1], handCut: h.id }));
+      appendEvent(slug, 'model', 'parse', { blurtId: blurt.id, units: created, ...(skipped.length ? { skipped } : {}) });
+      for (const t of typed) appendEvent(slug, 'model', 'unit.update', t);
       return created;
     });
+  }
+
+  /**
+   * Close the open spill (parse is the only caller): its text becomes an immutable blurt, and each idea the writer cut
+   * by hand from it is found in the final words. Found: its position is set. Not found (the words were edited away
+   * after the drag): flagged, as a parsed cut that isn't verbatim is. Runs inside the project's lock.
+   */
+  function closeSpill(slug: string): Blurt | null {
+    const blurt = closeOpenSpill(slug);
+    if (!blurt) return null;
+    appendEvent(slug, 'human', 'blurt.create', { id: blurt.id, text: blurt.text });
+    const units = readUnits(slug);
+    for (const u of units) {
+      if (u.cutBy !== 'human' || u.blurtId !== blurt.id || u.start >= 0) continue;
+      const loc = locate(blurt.text, u.text);
+      const patch: Partial<Unit> = loc
+        ? { start: loc[0], end: loc[1], ...(blurt.text.slice(loc[0], loc[1]) !== u.text ? { text: blurt.text.slice(loc[0], loc[1]) } : {}) }
+        : { flags: { ...u.flags, notVerbatim: true } };
+      Object.assign(u, patch);
+      appendEvent(slug, 'system', 'unit.update', { id: u.id, patch });
+    }
+    writeUnits(slug, units);
+    return blurt;
+  }
+
+  /** Save the spill box as the open spill: one logged event per save, and none when nothing changed. Inside the lock. */
+  function saveSpill(slug: string, text: string, res: Response) {
+    if (hosted && !isAdmin(accountOf(res)) && text.length > SAVE_MAX) throw new HttpError(413, 'That is too long to save as one blurt. Split it and try again.');
+    const saved = saveOpenSpill(slug, text);
+    if (saved) appendEvent(slug, 'human', 'blurt.update', { id: saved.id, text });
+    return readOpenSpill(slug);
   }
 
   const parseStatus = (e: unknown) => e instanceof HttpError ? e.status : e instanceof ParseFailure ? 422 : 502;
@@ -396,13 +467,28 @@ export function createApp(hosted?: Hosted): Express {
     return 'The parse failed. Your blurt is saved; try again.';
   };
 
-  app.post('/api/p/:slug/blurts', wrap(async (req, res) => {
+  /** The spill box, saved as the writer goes (the page sends it after a pause in typing). */
+  app.put('/api/p/:slug/spill', wrap(async (req, res) => {
     const slug = slugOf(req);
     const text = String(req.body?.text ?? '');
-    if (!text.trim()) throw new HttpError(400, 'Blurt is empty');
-    if (hosted && !isAdmin(accountOf(res)) && text.length > SAVE_MAX) throw new HttpError(413, 'That is too long to save as one blurt. Split it and try again.');
-    const blurt = saveBlurt(slug, text);
-    appendEvent(slug, 'human', 'blurt.create', { id: blurt.id, text });
+    res.json({ open: await withLock(slug, () => saveSpill(slug, text, res)) });
+  }));
+
+  /** Parse: takes the open spill (saving the box's latest text first, when sent), closes it, and cuts it into ideas. */
+  app.post('/api/p/:slug/blurts', wrap(async (req, res) => {
+    const slug = slugOf(req);
+    const blurt = await withLock(slug, () => {
+      // Sent text is saved first. With no open spill yet, the close below records the text in full, so no separate save is logged.
+      const sent = req.body?.text;
+      if (typeof sent === 'string') {
+        if (readOpenSpill(slug)) saveSpill(slug, sent, res);
+        else if (sent.trim()) saveOpenSpill(slug, sent);
+      }
+      const open = readOpenSpill(slug);
+      if (!open?.text.trim()) throw new HttpError(400, 'Blurt is empty');
+      if (hosted && !isAdmin(accountOf(res)) && open.text.length > SAVE_MAX) throw new HttpError(413, 'That is too long to save as one blurt. Split it and try again.');
+      return closeSpill(slug)!;
+    });
     try {
       const units = await runParse(slug, blurt, accountOf(res));
       res.json({ blurt, units });
@@ -411,9 +497,11 @@ export function createApp(hosted?: Hosted): Express {
     }
   }));
 
+  /** Try again, after a failed parse. A closed spill that was parsed is never parsed again. */
   app.post('/api/p/:slug/blurts/:id/parse', wrap(async (req, res) => {
     const slug = slugOf(req);
     const blurt = getBlurt(slug, String(req.params.id));
+    if (blurt.parsed || readUnits(slug).some((u) => u.blurtId === blurt.id && u.cutBy !== 'human')) throw new HttpError(409, 'That spill is already cut into ideas');
     try {
       res.json({ blurt, units: await runParse(slug, blurt, accountOf(res)) });
     } catch (e) {
@@ -428,7 +516,8 @@ export function createApp(hosted?: Hosted): Express {
     const id = String(req.params.id);
     const patch: Partial<Unit> = {};
     for (const k of EDITABLE) if (k in (req.body ?? {})) (patch as Record<string, unknown>)[k] = req.body[k];
-    if (patch.type && !UNIT_TYPES.includes(patch.type)) throw new HttpError(400, 'Unknown type');
+    // The writer can set a type, not unset one: untyped is only where a hand cut starts.
+    if ('type' in patch && !UNIT_TYPES.includes(patch.type as UnitType)) throw new HttpError(400, 'Unknown type');
     if (patch.status && !['proposed', 'accepted', 'cut'].includes(patch.status)) throw new HttpError(400, 'Unknown status');
     if (patch.label !== undefined) {
       patch.label = String(patch.label).trim();
@@ -445,10 +534,53 @@ export function createApp(hosted?: Hosted): Express {
       Object.assign(u, patch);
       if (patch.label !== undefined) { u.labeledBy = 'human'; if (u.flags) delete u.flags.labelTooLong; }
       if (patch.type !== undefined) u.labeledBy = 'human';
+      // Where the writer put it, a parse leaves it, loose included.
+      if (patch.home !== undefined) u.homedBy = 'human';
       // One level deep: a piece that can no longer hold others lets its pieces go loose.
       settle(units, u);
       writeUnits(slug, units);
       appendEvent(slug, 'human', 'unit.update', { id, patch });
+      return u;
+    });
+    res.json(unit);
+  }));
+
+  /**
+   * An idea the writer cut by hand: words highlighted in the spill and dragged onto the board. The words are theirs,
+   * kept exactly; the label is cut from them (its first words), never written; it has no type until the writer picks
+   * one or a parse assigns one. From the spill box, the request carries the box's text, saved first as the open
+   * spill, and the idea points to that spill; its position is found when the spill closes. From a closed spill
+   * (`from`), the position is known now. Dropped on an idea, it goes under that idea's root; elsewhere, it stands alone.
+   */
+  app.post('/api/p/:slug/units', wrap(async (req, res) => {
+    const slug = slugOf(req);
+    const text = String(req.body?.text ?? '');
+    if (!text.trim()) throw new HttpError(400, 'Nothing was highlighted');
+    if (text.length > HAND_CUT_MAX) throw new HttpError(413, 'That is too long for one idea. Highlight less.');
+    const words = text.trim(), lead = text.length - text.trimStart().length;
+    const unit = await withLock(slug, () => {
+      let blurtId: string | null = null, start = -1, end = -1, notVerbatim = false;
+      const from = req.body?.from;
+      if (from) {
+        const b = getBlurt(slug, String(from.blurtId));
+        const s = Number(from.start), e = Number(from.end);
+        const loc: [number, number] | null = Number.isInteger(s) && b.text.slice(s, e) === text ? [s + lead, s + lead + words.length] : locate(b.text, words);
+        if (loc) [start, end] = loc; else notVerbatim = true;
+        blurtId = b.id;
+      } else if (typeof req.body?.spill === 'string') {
+        blurtId = saveSpill(slug, req.body.spill, res)?.id ?? null;
+      }
+      const units = readUnits(slug);
+      const home = nestTarget(units, req.body?.home ? String(req.body.home) : null) ?? null;
+      const u: Unit = {
+        id: newId(), type: null, label: cutLabel(words), text: words,
+        blurtId, start, end, home, ...(home ? { homedBy: 'human' as const } : {}), status: 'accepted',
+        origin: 'human', labeledBy: 'system', cutBy: 'human', verified: false, note: null,
+        ...(notVerbatim ? { flags: { notVerbatim: true } } : {}),
+        createdAt: new Date().toISOString(),
+      };
+      writeUnits(slug, [...units, u]);
+      appendEvent(slug, 'human', 'unit.create', { unit: u });
       return u;
     });
     res.json(unit);

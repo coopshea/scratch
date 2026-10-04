@@ -6,7 +6,8 @@ import type { Unit, UnitType } from './types.ts';
  * Something that belongs to a root never holds pieces itself.
  */
 export const HOLDER_TYPES: readonly UnitType[] = ['claim', 'question'];
-export const canHold = (t: UnitType) => HOLDER_TYPES.includes(t);
+/** An untyped idea can hold pieces too: it may yet be typed a claim or question, and the writer may group under it first. */
+export const canHold = (t: UnitType | null) => t === null || HOLDER_TYPES.includes(t);
 
 /** A root: a claim or question that belongs to nothing. */
 export const isRoot = (u: Pick<Unit, 'type' | 'home'>) => canHold(u.type) && !u.home;
@@ -45,4 +46,21 @@ export function canHoldUnit(target: Pick<Unit, 'id' | 'type' | 'home'> | undefin
 export function settle(units: Pick<Unit, 'id' | 'home'>[], u: Pick<Unit, 'id' | 'type' | 'home'>) {
   if (canHold(u.type) && !u.home) return;
   for (const x of units) if (x.home === u.id) x.home = null;
+}
+
+/**
+ * Where something dropped on `targetId` goes: under the root it was dropped on, or, dropped on a piece, under that
+ * piece's root (clusters stay one level deep, so "under a piece" means beside it). A loose piece can't hold anything,
+ * so a drop there lands loose. `movingId` is the idea being dragged, if it is one: dropping it on itself or on its
+ * own pieces changes nothing (undefined).
+ */
+export function nestTarget(
+  units: Pick<Unit, 'id' | 'type' | 'home' | 'status'>[], targetId: string | null, movingId?: string,
+): string | null | undefined {
+  const live = (id: string | null) => (id ? units.find((u) => u.id === id && u.status !== 'cut') : undefined);
+  const t = live(targetId);
+  if (!t) return null;
+  const parent = live(t.home);
+  const home = isRoot(t) ? t.id : parent && isRoot(parent) ? parent.id : null;
+  return movingId !== undefined && home === movingId ? undefined : home;
 }

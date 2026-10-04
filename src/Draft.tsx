@@ -13,7 +13,7 @@ import { STRUCTURES, type Board, type StructureDef } from '../shared/structures.
 import { api } from './api.ts';
 import { ChipLabels, noBlockHints, noSpellcheckInCode, schema, ScratchSideMenu, slashItems, type ScratchEditor } from './blocks.tsx';
 import { blocksToMarkdown, joinSections, markdownToBlocks, splitSections, type Part } from './draftBlocks.ts';
-import { TYPE_INK } from './typeStyle.ts';
+import { inkOf } from './typeStyle.ts';
 
 /**
  * Draft: the outline beside the page, on BlockNote, the editor the idea sheet uses.
@@ -504,7 +504,7 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
                     }}>
                     <div className="cue-line" onClick={() => { if (!open.has(u.id)) onSelect(u.id); toggle(u.id); }}>
                       <button className="disclose" aria-label="Show original">{open.has(u.id) ? '▾' : '▸'}</button>
-                      {!(u.type === 'claim' && isRoot(u)) && <em style={{ color: TYPE_INK[u.type] }}>{u.type}</em>}
+                      {u.type && !(u.type === 'claim' && isRoot(u)) && <em style={{ color: inkOf(u.type) }}>{u.type}</em>}
                       <span className={`cue-label ${isRoot(u) ? 'is-claim' : ''}`} onDoubleClick={() => insertChip(u.id)}>{u.label}</span>
                       {(uses.get(u.id) ?? 0) > 1 && <span className="uses">×{uses.get(u.id)}</span>}
                     </div>
@@ -514,7 +514,7 @@ export function Draft({ units, board, draft, onDraft, onSelect, onBoard, structu
                 {active === p.lane && suggestions.map((u) => (
                   <div key={`s-${u.id}`} className="cue suggestion">
                     <div className="cue-line">
-                      <em style={{ color: TYPE_INK[u.type] }}>{u.type}</em>
+                      {u.type && <em style={{ color: inkOf(u.type) }}>{u.type}</em>}
                       <span className="cue-label">{u.label}</span>
                       <button className="link" onClick={() => move(u.id, p.lane, null)}>move here</button>
                     </div>

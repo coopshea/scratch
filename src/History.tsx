@@ -1,5 +1,5 @@
 import type { LogEvent } from '../shared/replay.ts';
-import type { Unit } from '../shared/types.ts';
+import { UNTYPED, type Unit } from '../shared/types.ts';
 
 function when(iso: string) {
   const d = new Date(iso);
@@ -8,7 +8,7 @@ function when(iso: string) {
   return `${d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} · ${ago}`;
 }
 
-const VERB: Record<string, string> = { 'blurt.create': 'blurt', parse: 'parsed', 'unit.update': 'edit', 'asset.upload': 'image' };
+const VERB: Record<string, string> = { 'blurt.create': 'blurt', parse: 'parsed', 'unit.update': 'edit', 'unit.create': 'cut by hand', 'blurt.update': 'spill saved', 'asset.upload': 'image' };
 
 type Props = {
   events: LogEvent[];
@@ -30,13 +30,13 @@ export function History({ events, count, onCount, units, selectedId, onSelect }:
       <div className="rule"><span>{e ? `${VERB[e.type] ?? e.type} · ${e.author}` : ''}</span><span>{count}/{events.length}</span></div>
       {kept.map((u) => (
         <button key={u.id} className={`hist-row ${u.id === selectedId ? 'on' : ''}`} onClick={() => onSelect(u.id)}>
-          <em>{u.type}</em> {u.label}
+          <em>{u.type ?? UNTYPED}</em> {u.label}
         </button>
       ))}
       {cut.length > 0 && <div className="rule"><span>cut</span></div>}
       {cut.map((u) => (
         <button key={u.id} className={`hist-row is-cut ${u.id === selectedId ? 'on' : ''}`} onClick={() => onSelect(u.id)}>
-          <em>{u.type}</em> {u.label}
+          <em>{u.type ?? UNTYPED}</em> {u.label}
         </button>
       ))}
     </div>

@@ -8,7 +8,7 @@ import { archetypes } from './api.ts';
 import { LevelPicker } from './LevelPicker.tsx';
 import { slugify, type Lane, type Role } from '../shared/structures.ts';
 import { UNIT_TYPES } from '../shared/types.ts';
-import { TYPE_INK } from './typeStyle.ts';
+import { inkOf } from './typeStyle.ts';
 import { layoutCard, masonry } from './cards.ts';
 import { posthog } from './posthog.ts';
 
@@ -487,15 +487,16 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
             const dim = selRoot !== null && r.id !== selRoot;
             const s = u.type === 'claim' ? support(u, live) : null;
             const at = placedAt.get(u.id);
-            const offType = at !== undefined && !lanes[at.lane].accepts.includes(u.type);
-            const cls = ['unit', isRoot(u) ? 'is-claim' : '', placedAt.has(r.id) ? 'is-placed' : '', offType ? 'off-type' : '',
+            // Untyped has no usual level, so it is never marked off-type.
+            const offType = at !== undefined && u.type !== null && !lanes[at.lane].accepts.includes(u.type);
+            const cls = ['unit', isRoot(u) && u.type ? 'is-claim' : '', u.type ? '' : 'untyped', placedAt.has(r.id) ? 'is-placed' : '', offType ? 'off-type' : '',
               u.id === selectedId ? 'is-selected' : '', dim ? 'dim' : ''].join(' ');
             return (
-              <div key={u.id} className={cls} data-type={u.type} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}
+              <div key={u.id} className={cls} data-type={u.type ?? undefined} style={{ '--c': inkOf(u.type) } as React.CSSProperties}
                 title={offType ? `${lanes[at!.lane].name} usually holds: ${lanes[at!.lane].accepts.join(', ')}` : undefined}
                 ref={(el) => { if (el) nodeEls.current.set(u.id, el); else nodeEls.current.delete(u.id); }}
                 onPointerDown={(e) => press(e, u.id)}>
-                {!(u.type === 'claim' && !u.home) && <span className="kind">{u.type}</span>}
+                {u.type && !(u.type === 'claim' && !u.home) && <span className="kind">{u.type}</span>}
                 <span className="lbl">
                   {s && <span className={`support s-${s}`} title={SUPPORT_TITLE[s]}>{MARK[s]} </span>}
                   {u.label}
