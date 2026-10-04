@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { expect, test } from '@playwright/test';
+import type { Unit } from '../shared/types.ts';
 import { BLURT, CLAIM, EVIDENCE, QUESTION, newProject, open, place, spill } from './helpers.ts';
 
 test('Spill: a blurt is cut into ideas on cards', async ({ page, request }) => {
@@ -110,4 +111,26 @@ test('Export: clean markdown, evidence as numbered footnotes', async ({ page, re
     `[^1]: ${evidence.text}`,
     '',
   ].join('\n'));
+});
+
+test('Help: the ? menu opens a copy of the example, and its waiting spill parses from the stored result', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Help' }).click();
+  await page.getByRole('menuitem', { name: 'Open an example' }).click();
+  await expect(page).toHaveURL(/\?p=example-gas-turbines/);
+
+  // The extra spill sits in the box; the first is already cut into ideas.
+  const box = page.getByRole('textbox', { name: /Braindump here/ });
+  await expect(box).toHaveValue(/^another thing\. the land turbines/);
+  await expect(page.locator('.graph').getByText('firing temperature drives everything', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Parse writing' }).click();
+  await expect(box).toHaveValue('');
+  // Cards show a few pieces each, so check the result itself: the stored parse, applied by the system.
+  const slug = new URL(page.url()).searchParams.get('p')!;
+  await expect.poll(async () => {
+    const events = await (await page.request.get(`/api/p/${slug}/events`)).json() as { type: string; author: string; data: { fromExample?: string; units: Unit[] } }[];
+    const parse = events.filter((e) => e.type === 'parse').at(-1)!;
+    return { author: parse.author, from: parse.data.fromExample, labels: parse.data.units.map((u) => u.label).includes('hotter firing eats blade life') };
+  }).toEqual({ author: 'system', from: 'gas-turbines', labels: true });
 });

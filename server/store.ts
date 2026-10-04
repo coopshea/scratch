@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Blurt, Project, ProjectMeta, ProjectSummary, Unit } from '../shared/types.ts';
+import type { Blurt, Project, ProjectMeta, ProjectSummary, Unit, UnitType } from '../shared/types.ts';
 import { emptyBoard, type Board, type StructureDef } from '../shared/structures.ts';
 
 /** Where writing lives. Tests point SCRATCH_DATA at a temporary folder. */
@@ -189,6 +189,44 @@ export function readArchetypes(): StructureDef[] {
 export function writeArchetypes(list: StructureDef[]) {
   fs.mkdirSync(root(), { recursive: true });
   writeAtomic(archetypesFile(), JSON.stringify(list, null, 2) + '\n');
+}
+
+/**
+ * Sample documents, shipped with the code in examples/<name>/ in the same layout as a project folder. Opening one
+ * copies it into the writer's own space as a new document, so editing it is harmless. Its own history comes along,
+ * and the copy itself is logged as the system's doing.
+ */
+const EXAMPLES_DIR = path.resolve(import.meta.dirname, '..', 'examples');
+/** The precoded parse of an example's open spill. It stays with the code and is never copied into a writer's folder. */
+const EXAMPLE_PARSE = 'example-parse.json';
+/** Which example a document came from. Written by the copy, and only by it: no route writes arbitrary files. */
+const EXAMPLE_MARK = 'example.json';
+const isExample = (name: string) => /^[a-z0-9-]{1,64}$/.test(name) && fs.existsSync(path.join(EXAMPLES_DIR, name, 'meta.json'));
+
+export function copyExample(name: string, slug: string) {
+  if (!isExample(name)) throw new HttpError(404, 'No such example');
+  assertSlug(slug);
+  fs.mkdirSync(root(), { recursive: true });
+  const dest = path.join(root(), slug);
+  fs.cpSync(path.join(EXAMPLES_DIR, name), dest, {
+    recursive: true, errorOnExist: true, force: false, filter: (src) => path.basename(src) !== EXAMPLE_PARSE,
+  });
+  fs.writeFileSync(path.join(dest, EXAMPLE_MARK), JSON.stringify({ example: name }) + '\n');
+  appendEvent(slug, 'system', 'project.fromExample', { example: name });
+  return readMeta(slug);
+}
+
+export type ExampleParse = { example: string; units: { key: string; type: UnitType; label: string; text: string; home: string }[]; untyped: [] };
+/**
+ * An example's open spill parses without the model: in a document copied from an example, a spill whose text is
+ * exactly what the example shipped gets the stored result. Anything else (another document, any edit to the words)
+ * is null and goes to the model as usual, so this never parses other text for free.
+ */
+export function exampleParse(slug: string, text: string): ExampleParse | null {
+  const name = readJson<{ example?: string } | null>(path.join(projectDir(slug), EXAMPLE_MARK), null)?.example;
+  if (!name || !isExample(name)) return null;
+  const stored = readJson<{ text: string; units: ExampleParse['units'] } | null>(path.join(EXAMPLES_DIR, name, EXAMPLE_PARSE), null);
+  return stored && stored.text === text ? { example: name, units: stored.units, untyped: [] } : null;
 }
 
 /**

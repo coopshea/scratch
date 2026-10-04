@@ -9,7 +9,7 @@ import type { Usage } from './parser.ts';
 import { captureServerError } from './posthog.ts';
 import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ExistingNode, type ParsedUnit } from './parser.ts';
 import {
-  appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset,
+  appendEvent, assertSlug, copyExample, exampleParse, type ExampleParse, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset,
   closeOpenSpill, listBlurts, markParsed, readOpenSpill, saveOpenSpill, withLock, writeBoard, writeDraft, writeMeta, writeUnits,
 } from './store.ts';
 import { outlineToStructure, slugify, structureMap, STRUCTURES, type Board, type Lane } from '../shared/structures.ts';
@@ -235,15 +235,31 @@ export function createApp(hosted?: Hosted): Express {
     res.send(md);
   }));
 
-  app.post('/api/projects', wrap((req, res) => {
-    const title = String(req.body?.title ?? '').trim() || 'untitled';
-    const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled';
+  /** A slug for a new document: `base`, or `base-2`, `base-3`… when taken. */
+  const freeSlug = (base: string) => {
     const taken = new Set(listProjects().map((p) => p.slug));
     let slug = base, i = 2;
     while (taken.has(slug)) slug = `${base}-${i++}`;
+    return slug;
+  };
+
+  app.post('/api/projects', wrap((req, res) => {
+    const title = String(req.body?.title ?? '').trim() || 'untitled';
+    const slug = freeSlug(title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled');
     projectDir(slug);
     writeMeta(slug, { title });
     appendEvent(slug, 'human', 'project.create', { title });
+    res.json({ slug, title });
+  }));
+
+  /**
+   * A sample document, copied into the writer's own space (store.ts). No parse runs, so it costs nothing. Each open
+   * is a fresh copy: nothing to track, and a writer who has edited theirs can always get a clean one.
+   */
+  app.post('/api/projects/example', wrap((req, res) => {
+    const name = String(req.body?.name ?? 'gas-turbines');
+    const slug = freeSlug(`example-${name}`.slice(0, 64));
+    const { title } = copyExample(name, slug);
     res.json({ slug, title });
   }));
 
@@ -303,6 +319,9 @@ export function createApp(hosted?: Hosted): Express {
    * The balance is charged what the parse cost, after it succeeds; a failed parse gives back a free parse.
    */
   async function runParse(slug: string, blurt: Blurt, account?: Account) {
+    // An example's own open spill, unedited: its stored parse, with no model call and nothing charged.
+    const canned = exampleParse(slug, blurt.text);
+    if (canned) return parseInto(slug, blurt, undefined, undefined, undefined, canned);
     let paid: Paid | undefined;
     if (account && hosted && !isAdmin(account)) {
       if (blurt.text.length > BLURT_MAX) throw new HttpError(413, "That's longer than one parse can take. It's saved; split it and paste the parts.");
@@ -331,7 +350,9 @@ export function createApp(hosted?: Hosted): Express {
     }
   }
 
-  async function parseInto(slug: string, blurt: Blurt, apiKey?: string, onUsage?: (u: Usage) => void, distinctId?: string) {
+  async function parseInto(slug: string, blurt: Blurt, apiKey?: string, onUsage?: (u: Usage) => void, distinctId?: string, canned?: ExampleParse) {
+    // A stored example parse is the system's doing, not the model's.
+    const by = canned ? 'system' : 'model';
     const before = readUnits(slug);
     const live = before.filter((u) => u.status !== 'cut');
     const vocab = [...new Set(live.map((u) => u.label))];
@@ -341,7 +362,7 @@ export function createApp(hosted?: Hosted): Express {
       id: u.id, type: u.type, label: u.label, home: u.home, text: u.text, ...(u.cutBy === 'human' ? { hand: true } : {}),
     }));
 
-    const out = await parseBlurt(blurt.text, vocab, roots, apiKey, onUsage, { projectId: slug, distinctId }, nodes);
+    const out = canned ?? await parseBlurt(blurt.text, vocab, roots, apiKey, onUsage, { projectId: slug, distinctId }, nodes);
     const parsed = out.units;
 
     return withLock(slug, () => {
@@ -392,7 +413,7 @@ export function createApp(hosted?: Hosted): Express {
           home,
           status: 'accepted',
           origin: 'human',
-          labeledBy: 'model',
+          labeledBy: by,
           verified: false,
           note: null,
           flags: { notVerbatim: !loc || undefined, labelTooLong: labelProblem(label) ? true : undefined },
@@ -421,8 +442,8 @@ export function createApp(hosted?: Hosted): Express {
       writeUnits(slug, all);
       markParsed(slug, blurt.id);
       const skipped = [...repeats].map(([key, h]) => ({ text: byKey.get(key)!.text, start: locOf.get(key)![0], end: locOf.get(key)![1], handCut: h.id }));
-      appendEvent(slug, 'model', 'parse', { blurtId: blurt.id, units: created, ...(skipped.length ? { skipped } : {}) });
-      for (const t of typed) appendEvent(slug, 'model', 'unit.update', t);
+      appendEvent(slug, by, 'parse', { blurtId: blurt.id, units: created, ...(skipped.length ? { skipped } : {}), ...(canned ? { fromExample: canned.example } : {}) });
+      for (const t of typed) appendEvent(slug, by, 'unit.update', t);
       return created;
     });
   }

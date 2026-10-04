@@ -59,6 +59,13 @@ export const projects = {
     const res = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }) });
     return res.json() as Promise<{ slug: string; title: string }>;
   },
+  /** A fresh copy of a sample document in the writer's own space. */
+  fromExample: async (name = 'gas-turbines') => {
+    const res = await fetch('/api/projects/example', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error ?? 'Could not open the example');
+    return body as { slug: string; title: string };
+  },
 };
 
 export const archetypes = {
