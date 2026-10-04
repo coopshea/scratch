@@ -57,7 +57,7 @@ Every non-claim unit belongs to one claim or is loose. Units are cut, never dele
 
 **7. Local and private.** Cooper's writing lives in `projects/`, which is gitignored. The public repo is code and docs only. The API key is in `.env`, also gitignored.
 
-**8. Drop-in libraries over hand-built primitives.** d3-force for layout, BlockNote for rich-text notes and the draft, Downshift for the combobox, the official Anthropic SDK for the parser. Point out when an existing tool already does what is asked (Heptabase, Gingko Writer, Obsidian Canvas, and Scrivener each overlap one stage).
+**8. Drop-in libraries over hand-built primitives.** BlockNote for rich-text notes and the draft, Downshift for the combobox, the official Anthropic SDK for the parser. Point out when an existing tool already does what is asked (Heptabase, Gingko Writer, Obsidian Canvas, and Scrivener each overlap one stage).
 
 **9. The look: the design system.** Since 2026-09-28 the app follows the Scratch design system (https://claude.ai/artifact/X3VzMr8pquZKpoMbRn42ew; screens at https://claude.ai/artifact/9gVUYbkUAGBKhKj7ZKqt29). The sepia notebook is only its loose inspiration. Its rules: things you can move are white cards with a slight shadow, on a warm grey desk; pages you write on are flat. The writer's words are Newsreader (serif); the interface is Hanken Grotesk; blue pencil means Scratch talking (hints, where a drop lands, focus), never the writer's material. Only questions and objections get their own colour, on the type tag. The stages are a 1 › 2 › 3 rail with the current one filled: a toggle you can flip either way. Tokens live at the top of `src/styles.css`. A copy of the system's files (rules, `tokens.json`, each component's guidelines and preview) is in `docs/design-system/`. Less is more.
 
@@ -130,10 +130,8 @@ Motivated reasoning (taking a position, then finding evidence) is allowed becaus
 
 ## Technical gotchas that cost time
 
-- **Hidden tabs pause `requestAnimationFrame`.** The preview pane is often in the background. Any layout that only moves on animation frames renders as nothing. Both graphs run a synchronous up-front layout (tick the simulation directly) on first view and on resize.
-- **d3 tick handlers are created once.** They must read geometry from refs, not from closed-over React state, or they keep using the first render's sizes.
-- **React runs layout effects before normal effects.** Anything the first layout effect needs, such as the simulation, must be created in an earlier layout effect.
+- **Hidden tabs pause `requestAnimationFrame`.** The preview pane is often in the background. Any layout that only moves on animation frames renders as nothing. Both boards lay out synchronously in a layout effect after every render, writing positions straight to the page.
+- **React runs layout effects before normal effects.** Anything the first layout effect needs must be created in an earlier layout effect.
 - **BlockNote, in the draft and notes.** Keyboard plugins registered after BlockNote's own never see arrow keys at a block's edge; register them first (`registerPlugin(p, (p, ps) => [p, ...ps])`). Setting DOM attributes on editor content makes it redraw (and a MutationObserver re-adding them loops); use a decoration. The / menu sizes itself to the nearest ancestor with any `overflow` clipping, `clip` included, so a section's cell must not clip. Loading content must carry `addToHistory: false`, or Cmd+Z empties a section. `trailingBlock: false`, or typing on the last line pushes a new empty one in below.
-- **The overlap resolver respects per-axis pins** (`fx` and `fy`). Page 2 alternates region clamping with overlap passes, then stacks leftovers downward within each region. The generic push can shove nodes out of a level.
 - **Server changes need a restart.** `tsx` is not watching. Vite hot-reloads the client only.
 - **Preview screenshots in the small pane sometimes show a half-painted frame.** Trust DOM measurements over the image.

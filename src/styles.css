@@ -422,7 +422,8 @@ select:focus { outline: none; text-decoration: underline; }
 .level-insert:hover { color: var(--ink); border-color: var(--ink-2); }
 .level-insert-picker { position: absolute; left: 20px; top: -12px; z-index: 30; }
 .level-hint { position: absolute; left: 204px; top: 50%; transform: translateY(-50%); pointer-events: none; }
-.drop-plus { position: absolute; left: 204px; top: 50%; transform: translateY(-50%); width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--go);
+/* Centred on the level head's right edge (180px), half over the name and half over the row, above any ideas. */
+.drop-plus { position: absolute; left: 162px; top: 50%; z-index: 25; transform: translateY(-50%); width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--go);
   background: var(--card); color: var(--go); display: grid; place-items: center; pointer-events: none; font: 400 22px/1 var(--sans); }
 .pool-title { position: absolute; top: 12px; font: 600 14px/20px var(--sans); color: var(--ink); pointer-events: none; }
 .pool-edge { position: absolute; top: 0; border-left: 1px dashed var(--line-strong); }

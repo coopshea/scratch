@@ -1,5 +1,4 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation } from 'd3-force';
 import type { Unit } from '../shared/types.ts';
 import { isRoot } from '../shared/clusters.ts';
 import {
@@ -10,12 +9,8 @@ import { LevelPicker } from './LevelPicker.tsx';
 import { slugify, type Lane, type Role } from '../shared/structures.ts';
 import { UNIT_TYPES } from '../shared/types.ts';
 import { inkOf } from './typeStyle.ts';
-import { rectCollide, resolveOverlaps, type BoxNode } from './collide.ts';
 import { layoutCard, masonry } from './cards.ts';
 import { posthog } from './posthog.ts';
-
-type SimNode = BoxNode & { claim: boolean };
-type SimLink = { source: string | SimNode; target: string | SimNode; key: string };
 
 const LABEL_W = 180;     // outline column at far left
 const MID = 0.5;        // drop left of this to lock into a level, right of it to release
@@ -128,146 +123,59 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lanes, live, placedAt, size.H, size.W, measured]);
 
-  // Every cluster is shown by its layout (a row line, or a pool card), so no lines are drawn inside clusters.
-  const edges = useMemo(() => [] as { key: string; source: string; target: string }[], []);
   /** Units pulled out of their cluster keep a faint thread back to their claim; it does not pull them. */
   const threads = useMemo(() => live.filter((u) => u.home && byId.has(u.home) && placedAt.has(u.id)
       && placedAt.get(u.home)?.lane !== placedAt.get(u.id)!.lane)
     .map((u) => ({ key: `t-${u.home}-${u.id}`, a: u.home!, b: u.id })), [live, byId, placedAt]);
-  const threadsRef = useRef(threads);
-  threadsRef.current = threads;
 
-  const edgeEls = useRef(new Map<string, SVGLineElement>());
-  const simNodes = useRef(new Map<string, SimNode>());
-  const sim = useRef<Simulation<SimNode, SimLink> | null>(null);
-  const target = useRef(new Map<string, { x: number; y: number; placed: boolean; band?: [number, number] }>());
-  const dragging = useRef<string | null>(null);
-  const settledFor = useRef('');
+  const threadEls = useRef(new Map<string, SVGLineElement>());
+  /** Where each unit is drawn: its centre and size. The one being dragged follows the pointer instead. */
+  const drawn = useRef(new Map<string, { x: number; y: number; w: number; h: number }>());
+  const drag = useRef<{ id: string; x: number; y: number } | null>(null);
   const [hoverBand, setHoverBand] = useState<{ i: number; ok: boolean } | null>(null);
   const [dragOn, setDragOn] = useState(false);
 
-  // Geometry the simulation reads live; the tick handler is created once and must not close over stale values.
-  const geo = useRef({ poolX, W: size.W, totalH });
-  geo.current = { poolX, W: size.W, totalH };
-
+  /** Write positions straight to the page: no simulation, the same arrangement always lands in the same place. */
   const paint = () => {
-    const s = sim.current; if (!s) return;
-    const ns = s.nodes();
-    const { poolX, W, totalH } = geo.current;
-    // Keep clusters inside their region (placed: their band; loose: the pool) and never overlapping.
-    const clamp = () => {
-      for (const n of ns) {
-        const t = target.current.get(n.id); if (!t || n.id === dragging.current) continue;
-        const minX = (t.placed ? LABEL_W : W * LOOSE_MIN) + n.w / 2 + 8, maxX = (t.placed ? W * LOCKED_MAX : W) - n.w / 2 - 8;
-        n.x = Math.min(Math.max(n.x!, minX), Math.max(minX, maxX));
-        if (t.band) n.y = Math.min(Math.max(n.y!, t.band[0] + n.h / 2 + 6), Math.max(t.band[0] + n.h / 2 + 6, t.band[1] - n.h / 2 - 6));
-        else n.y = Math.min(Math.max(n.y!, n.h / 2 + 6), totalH - n.h / 2 - 6);
-      }
-    };
-    for (let k = 0; k < 6; k++) { clamp(); resolveOverlaps(ns); }
-    // Too little room sideways: settle vertically, then re-check regions.
-    clamp();
-    // Final rule inside each region: whatever still overlaps stacks below the item above it.
-    const groups = new Map<string, SimNode[]>();
-    for (const n of ns) {
-      const t = target.current.get(n.id);
-      const k = t?.band ? `b${t.band[0]}` : 'pool';
-      if (!groups.has(k)) groups.set(k, []);
-      groups.get(k)!.push(n);
+    const pos = (id: string) => (drag.current?.id === id ? drag.current : drawn.current.get(id));
+    for (const [id, p] of drawn.current) {
+      const el = nodeEls.current.get(id), q = pos(id)!;
+      if (el) el.style.transform = `translate(${q.x - p.w / 2}px, ${q.y - p.h / 2}px)`;
     }
-    for (const g of groups.values()) {
-      g.sort((a, b) => Number(b.fy != null) - Number(a.fy != null) || a.y! - b.y!);
-      for (let i = 0; i < g.length; i++) {
-        const b = g[i];
-        if (b.fy != null) continue;
-        for (let pass = 0, hit = true; hit && pass < g.length; pass++) {
-          hit = false;
-          for (let j = 0; j < i; j++) {
-            const a = g[j];
-            if ((a.w + b.w) / 2 + 10 - Math.abs(b.x! - a.x!) > 0 && (a.h + b.h) / 2 + 10 - Math.abs(b.y! - a.y!) > 0) {
-              b.y = a.y! + (a.h + b.h) / 2 + 10; hit = true;
-            }
-          }
-        }
-      }
-    }
-    for (const n of ns) {
-      const el = nodeEls.current.get(n.id);
-      if (el) el.style.transform = `translate(${n.x! - n.w / 2}px, ${n.y! - n.h / 2}px)`;
-    }
-    for (const th of threadsRef.current) {
-      const el = edgeEls.current.get(th.key), a = simNodes.current.get(th.a), b = simNodes.current.get(th.b);
+    for (const th of threads) {
+      const el = threadEls.current.get(th.key), a = pos(th.a), b = pos(th.b);
       if (el && a && b) { el.setAttribute('x1', String(a.x)); el.setAttribute('y1', String(a.y)); el.setAttribute('x2', String(b.x)); el.setAttribute('y2', String(b.y)); }
-    }
-    for (const l of s.force<ReturnType<typeof forceLink<SimNode, SimLink>>>('link')!.links()) {
-      const el = edgeEls.current.get(l.key), a = l.source as SimNode, b = l.target as SimNode;
-      if (el) { el.setAttribute('x1', String(a.x)); el.setAttribute('y1', String(a.y)); el.setAttribute('x2', String(b.x)); el.setAttribute('y2', String(b.y)); }
     }
   };
 
   useLayoutEffect(() => {
-    const s = forceSimulation<SimNode, SimLink>([])
-      .force('link', forceLink<SimNode, SimLink>([]).id((d) => d.id).distance(50).strength(0.8))
-      .force('charge', forceManyBody<SimNode>().strength(-90))
-      .force('x', forceX<SimNode>((d) => target.current.get(d.id)?.x ?? 0).strength((d) => (target.current.get(d.id)?.placed ? 0.12 : 0.05)))
-      .force('y', forceY<SimNode>((d) => target.current.get(d.id)?.y ?? 0).strength((d) => (target.current.get(d.id)?.band ? 0.3 : 0.04)))
-      .force('collide', rectCollide())
-      .alphaDecay(0.04)
-      .on('tick', paint)
-      .stop();
-    sim.current = s;
     const ro = new ResizeObserver(() => {
       const b = boxRef.current; if (b) setSize({ W: b.clientWidth, H: b.clientHeight });
     });
     if (boxRef.current) { ro.observe(boxRef.current); setSize({ W: boxRef.current.clientWidth, H: boxRef.current.clientHeight }); }
-    return () => { s.stop(); ro.disconnect(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => ro.disconnect();
   }, []);
 
-  // Recompute targets whenever the arrangement or the canvas changes.
+  // Place every unit at its slot, kept inside its region (placed: its band, left of the pool; loose: the pool).
+  // Runs after every render, so the page is complete even while animation frames are paused.
   useLayoutEffect(() => {
-    const s = sim.current; if (!s) return;
-    const t = new Map<string, { x: number; y: number; placed: boolean; band?: [number, number] }>();
-    for (const [id, p] of slots) t.set(id, { x: p.x, y: p.y, placed: !!p.band, band: p.band });
-    const pool = { x: size.W * 0.78, y: totalH / 2, placed: false };
-    for (const u of live) if (!t.has(u.id) && rootOf(u).id === u.id) t.set(u.id, pool);
+    const W = size.W, next = new Map<string, { x: number; y: number; w: number; h: number }>();
+    const pool = { x: W * 0.78, y: totalH / 2 };
     for (const u of live) {
-      if (t.has(u.id)) continue;
-      const r = rootOf(u), rp = t.get(r.id);
-      if (rp) t.set(u.id, { x: rp.x, y: rp.y, placed: rp.placed, band: rp.band });
-      else t.set(u.id, pool);
-    }
-    target.current = t;
-
-    const next: SimNode[] = live.map((u) => {
       const el = nodeEls.current.get(u.id);
-      let n = simNodes.current.get(u.id);
-      if (!n) {
-        const tt = t.get(u.id)!;
-        n = { id: u.id, w: 0, h: 0, claim: false, x: tt.x + (Math.random() - 0.5) * 60, y: tt.y + (Math.random() - 0.5) * 60 };
-      }
-      n.w = el?.offsetWidth ?? 120; n.h = el?.offsetHeight ?? 24; n.claim = isRoot(u);
-      const slot = slots.get(u.id);
-      if (u.id !== dragging.current) { n.fx = slot ? slot.x : null; n.fy = slot ? slot.y : null; }
-      return n;
-    });
-    simNodes.current = new Map(next.map((n) => [n.id, n]));
-    s.nodes(next);
-    s.force<ReturnType<typeof forceLink<SimNode, SimLink>>>('link')!.links(edges.map((e) => ({ ...e })));
-    s.force<ReturnType<typeof forceX<SimNode>>>('x')!.x((d) => target.current.get(d.id)?.x ?? 0);
-    s.force<ReturnType<typeof forceY<SimNode>>>('y')!.y((d) => target.current.get(d.id)?.y ?? 0);
-    const key = `${size.W}x${size.H}`;
-    if (settledFor.current !== key) {
-      // Lay out up front on first view and on resize, so the page is complete even if animation frames are paused.
-      settledFor.current = key;
-      s.alpha(1);
-      for (let i = 0; i < 240; i++) s.tick();
-      paint();
-    } else {
-      s.alpha(Math.max(s.alpha(), 0.6)).restart();
+      const w = el?.offsetWidth ?? 120, h = el?.offsetHeight ?? 24;
+      const slot = slots.get(u.id) ?? slots.get(rootOf(u).id), band = slot?.band;
+      const placed = !!band;
+      const minX = (placed ? LABEL_W : W * LOOSE_MIN) + w / 2 + 8, maxX = (placed ? W * LOCKED_MAX : W) - w / 2 - 8;
+      const x = Math.min(Math.max(slot?.x ?? pool.x, minX), Math.max(minX, maxX));
+      const y = band
+        ? Math.min(Math.max(slot!.y, band[0] + h / 2 + 6), Math.max(band[0] + h / 2 + 6, band[1] - h / 2 - 6))
+        : Math.min(Math.max(slot?.y ?? pool.y, h / 2 + 6), totalH - h / 2 - 6);
+      next.set(u.id, { x, y, w, h });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [live, edges, placedAt, size, bandTop, bandHt, poolX, totalH, slots]);
+    drawn.current = next;
+    paint();
+  });
 
   const canvasPoint = (e: { clientX: number; clientY: number }) => {
     const r = boxRef.current!.getBoundingClientRect();
@@ -280,7 +188,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
       const lane = lanes[laneIdx];
       const others = (next[lane.id] ?? []).filter((z) => byId.has(z));
       // The writer's placement wins: no type or slot limits, just order by where it was dropped.
-      const at = others.findIndex((z) => (simNodes.current.get(z)?.x ?? 0) > x);
+      const at = others.findIndex((z) => (drawn.current.get(z)?.x ?? 0) > x);
       next[lane.id] = at < 0 ? [...others, id] : [...others.slice(0, at), id, ...others.slice(at)];
     }
     onBoard({ ...board, lanes: { ...board.lanes, [sid]: next } });
@@ -289,17 +197,17 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
 
   const press = (e: React.PointerEvent, id: string) => {
     e.stopPropagation();
-    const n = simNodes.current.get(id), u = byId.get(id);
-    if (!n || !u || !sim.current) return;
+    const n = drawn.current.get(id), u = byId.get(id);
+    if (!n || !u) return;
     const el = e.currentTarget as HTMLElement;
     el.setPointerCapture(e.pointerId);
-    const start = canvasPoint(e), ox = n.x!, oy = n.y!;
+    const start = canvasPoint(e), ox = n.x, oy = n.y;
     let moved = false;
     const bandAt = (y: number) => { const i = bandTop.findIndex((t, k) => y >= t && y < t + bandHt[k]); return i < 0 ? lanes.length - 1 : i; };
     const move = (ev: PointerEvent) => {
       const p = canvasPoint(ev);
       if (!moved && Math.hypot(p.x - start.x, p.y - start.y) < 4) return;
-      if (!moved) { moved = true; dragging.current = id; setDragOn(true); sim.current!.alphaTarget(0.25).restart(); }
+      if (!moved) { moved = true; setDragOn(true); }
       last = ev;
       follow();
       edgeScroll();
@@ -308,7 +216,8 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
     let last: { clientX: number; clientY: number } = e;
     const follow = () => {
       const p = canvasPoint(last);
-      n.fx = ox + p.x - start.x; n.fy = oy + p.y - start.y;
+      drag.current = { id, x: ox + p.x - start.x, y: oy + p.y - start.y };
+      paint();
       setHoverBand(p.x < poolX ? { i: bandAt(p.y), ok: true } : null);
     };
     // Auto-scroll: holding the pointer near the top or bottom edge scrolls the pane, faster the closer it is.
@@ -319,7 +228,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
       if (timer) return;
       const step = () => {
         const box = boxRef.current; timer = 0;
-        if (!box || !dragging.current) return;
+        if (!box || !drag.current) return;
         const r = box.getBoundingClientRect();
         const near = last.clientY < r.top + EDGE ? -(1 - (last.clientY - r.top) / EDGE) : last.clientY > r.bottom - EDGE ? 1 - (r.bottom - last.clientY) / EDGE : 0;
         if (!near) return;
@@ -334,17 +243,15 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
     const up = (ev: PointerEvent) => {
       el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', up);
-      dragging.current = null;
+      drag.current = null;
       window.clearTimeout(timer); timer = 0;
       setHoverBand(null);
       setDragOn(false);
-      const slot = slots.get(id);
-      n.fx = slot ? slot.x : null; n.fy = slot ? slot.y : null;
-      sim.current!.alphaTarget(0);
+      paint(); // back to its slot until the new arrangement lays it out
       if (!moved) { onSelect(id); return; }
       if (readOnly) return;
       const p = canvasPoint(ev);
-      if (p.x >= poolX) { if (placedAt.has(id)) place(id, null, p.x); else sim.current!.alpha(0.5).restart(); return; }
+      if (p.x >= poolX) { if (placedAt.has(id)) place(id, null, p.x); return; }
       place(id, bandAt(p.y), p.x);
     };
     el.addEventListener('pointermove', move);
@@ -573,8 +480,7 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
               style={{ transform: `translate(${c.x}px, ${c.y}px)`, width: c.w, height: c.h }} />
           ))}
           <svg className="graph-edges" aria-hidden>
-            {edges.map((e) => <line key={e.key} ref={(el) => { if (el) edgeEls.current.set(e.key, el); else edgeEls.current.delete(e.key); }} />)}
-            {threads.map((e) => <line key={e.key} className="thread" ref={(el) => { if (el) edgeEls.current.set(e.key, el); else edgeEls.current.delete(e.key); }} />)}
+            {threads.map((e) => <line key={e.key} className="thread" ref={(el) => { if (el) threadEls.current.set(e.key, el); else threadEls.current.delete(e.key); }} />)}
           </svg>
           {live.map((u) => {
             const r = rootOf(u);
