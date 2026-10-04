@@ -5,11 +5,17 @@ import { api, type Suggestion } from './api.ts';
 import { PassageRow } from './Passage.tsx';
 import type { Billing } from './App.tsx';
 import { Icon } from './icons.tsx';
+import { CUT, dragAsCard, SPILL } from './spillDrag.ts';
+import { Spills } from './Spills.tsx';
 import { NeedsReadwise, type ReadwiseOff } from './ReadwiseOff.tsx';
 
 type Props = {
   units: Unit[];
   blurts: Blurt[];
+  /** The open spill: the box's saved text, restored on load. */
+  open: Blurt | null;
+  /** Save the box's text as the open spill. Called after a pause in typing, and when leaving the page. */
+  onSaveSpill: (text: string) => void;
   busy: boolean;
   error: string | null;
   failedBlurtId: string | null;
@@ -19,18 +25,35 @@ type Props = {
   onBlurt: (text: string) => Promise<boolean>;
   onReparse: (id: string) => void;
   sheetOpen: boolean;
+  /** Open an idea in the note sheet: clicking words already cut from an earlier spill. */
+  onSelect: (id: string) => void;
   /** Readwise connected and something spilled: offer related reading; picking a passage adds it under its thread. */
   onAdopt?: (id: string, home: string | null) => Promise<void>;
   readwiseOff?: ReadwiseOff;
 };
 
-export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, billing, onBlurt, onReparse, sheetOpen, onAdopt, readwiseOff }: Props) {
-  const [text, setText] = useState('');
+export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlurtId, outOfCredits, billing, onBlurt, onReparse, sheetOpen, onSelect, onAdopt, readwiseOff }: Props) {
+  const [text, setText] = useState(open?.text ?? '');
   const box = useRef<HTMLTextAreaElement>(null);
+  // The box is always saved: about a second after typing stops, and on the way out. One save per pause, not per key.
+  const saved = useRef(open?.text ?? '');
+  const pending = useRef<number | undefined>(undefined);
+  const flush = useRef(() => {});
+  flush.current = () => {
+    window.clearTimeout(pending.current); pending.current = undefined;
+    if (text !== saved.current) { saved.current = text; onSaveSpill(text); }
+  };
+  useEffect(() => {
+    if (text === saved.current) return;
+    window.clearTimeout(pending.current);
+    pending.current = window.setTimeout(() => flush.current(), 1000);
+  }, [text]);
+  useEffect(() => () => { if (pending.current !== undefined) flush.current(); }, []);
   // The spill page always holds the cursor unless a note is open.
   useEffect(() => { if (!busy && !sheetOpen) box.current?.focus(); }, [busy, sheetOpen]);
-  const parsedIds = new Set(units.map((u) => u.blurtId));
-  const unparsed = blurts.filter((b) => !parsedIds.has(b.id) && b.id !== failedBlurtId);
+  // A closed spill no parse has run over (one that failed): hand cuts from it don't count.
+  const parsedIds = new Set(units.filter((u) => u.cutBy !== 'human').map((u) => u.blurtId));
+  const unparsed = blurts.filter((b) => !b.parsed && !parsedIds.has(b.id) && b.id !== failedBlurtId);
 
   const cutting = useCutting(busy);
   const dictation = useDictation((heard) => setText((t) => (t && !/\s$/.test(t) ? `${t} ` : t) + heard.trim()));
@@ -58,7 +81,9 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
   const submit = async () => {
     dictation.stop();
     if (!text.trim() || busy) return;
-    if (await onBlurt(text)) setText('');
+    // Parse sends the box's text itself and closes the open spill, so nothing pending is saved after it.
+    window.clearTimeout(pending.current); pending.current = undefined;
+    if (await onBlurt(text)) { saved.current = ''; setText(''); }
   };
 
   return (
@@ -70,6 +95,13 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
+          // Highlighted words dragged out to the board become an idea, in these exact words (spillDrag.ts).
+          onDragStart={(e) => {
+            const t = e.currentTarget, words = t.value.slice(t.selectionStart, t.selectionEnd);
+            if (!words.trim()) return;
+            e.dataTransfer.setData(CUT, words); e.dataTransfer.setData(SPILL, t.value); e.dataTransfer.effectAllowed = 'copy';
+            dragAsCard(e, words);
+          }}
           disabled={busy}
           autoFocus
           spellCheck
@@ -156,6 +188,8 @@ export function Talk({ units, blurts, busy, error, failedBlurtId, outOfCredits, 
           <button className="link" onClick={() => onReparse(b.id)} disabled={busy}>cut into ideas</button>
         </div>
       ))}
+      {/* Below the bar, folded: the box keeps the column. */}
+      <Spills blurts={blurts} units={units} onSelect={onSelect} />
     </div>
   );
 }

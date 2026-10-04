@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Unit } from '../shared/types.ts';
 import { isRoot, pickVisible } from '../shared/clusters.ts';
-import { TYPE_INK } from './typeStyle.ts';
+import { inkOf } from './typeStyle.ts';
 import { layoutCard, masonry, type Dim } from './cards.ts';
+import { UNIT } from './spillDrag.ts';
 
 const PAD = 28;          // screen padding around the map
 const MIN_READ = 0.8;    // text never renders smaller than this; past it the map pans instead of shrinking
@@ -14,6 +15,8 @@ type Props = {
   units: Unit[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  /** Ideas can be picked up and dropped on another to nest (see spillDrag.ts). Off in history. */
+  movable?: boolean;
 };
 
 /**
@@ -22,7 +25,7 @@ type Props = {
  * physics: the same content always lands in the same place. If even the smallest readable scale overflows,
  * the map pans (drag the background, or scroll) rather than shrinking the text.
  */
-export function Graph({ units, selectedId, onSelect }: Props) {
+export function Graph({ units, selectedId, onSelect, movable }: Props) {
   const live = useMemo(() => units.filter((u) => u.status !== 'cut'), [units]);
   const liveIds = useMemo(() => new Set(live.map((u) => u.id)), [live]);
   const kidsOf = useMemo(() => {
@@ -186,7 +189,7 @@ export function Graph({ units, selectedId, onSelect }: Props) {
     <div className="graph" ref={boxRef} onPointerDown={pan} onPointerMove={track} onWheel={wheel}>
       <div className="graph-world" ref={worldRef}>
         {clusters.map((r) => (
-          <div key={`c-${r.id}`} className={['card', hoverRoot === r.id || clusterRoot === r.id ? 'on' : '', !sel || clusterRoot === r.id ? '' : 'dim'].join(' ')}
+          <div key={`c-${r.id}`} data-drop={r.id} className={['card', hoverRoot === r.id || clusterRoot === r.id ? 'on' : '', !sel || clusterRoot === r.id ? '' : 'dim'].join(' ')}
             ref={(el) => { if (el) cardEls.current.set(r.id, el); else cardEls.current.delete(r.id); }}
             onPointerEnter={() => setHoverRoot(r.id)} onPointerLeave={() => setHoverRoot((h) => (h === r.id ? null : h))} />
         ))}
@@ -194,14 +197,15 @@ export function Graph({ units, selectedId, onSelect }: Props) {
         {live.map((u) => {
           const mini = hidden.has(u.id);
           const root = kidsOf.has(u.id);
-          const cls = ['unit', isRoot(u) ? 'is-claim' : '', root || (u.home && liveIds.has(u.home)) ? 'clustered' : 'solo', mini ? 'collapsed' : '',
+          const cls = ['unit', isRoot(u) && u.type ? 'is-claim' : '', u.type ? '' : 'untyped', root || (u.home && liveIds.has(u.home)) ? 'clustered' : 'solo', mini ? 'collapsed' : '',
             u.origin === 'model' ? 'is-model' : '', u.id === selectedId ? 'is-selected' : '', inFocus(u) ? '' : 'dim'].join(' ');
           return (
-            <div key={u.id} className={cls} data-type={u.type} style={{ '--c': TYPE_INK[u.type] } as React.CSSProperties}
+            <div key={u.id} className={cls} data-type={u.type ?? undefined} data-drop={u.id} style={{ '--c': inkOf(u.type) } as React.CSSProperties}
+              draggable={movable} onDragStart={(e) => { e.dataTransfer.setData(UNIT, u.id); e.dataTransfer.effectAllowed = 'move'; }}
               ref={(el) => { if (el) nodeEls.current.set(u.id, el); else nodeEls.current.delete(u.id); }}
               onPointerDown={(e) => e.stopPropagation()} onClick={() => onSelect(u.id)}>
               {!mini && <>
-                {!(u.type === 'claim' && !u.home) && <span className="kind">{u.type}</span>}
+                {u.type && !(u.type === 'claim' && !u.home) && <span className="kind">{u.type}</span>}
                 <span className="lbl">{u.label}</span>
                 {u.source && <span className="src">{u.source.title || 'Readwise'}</span>}
               </>}
