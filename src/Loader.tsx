@@ -6,8 +6,17 @@ import { useEffect, useRef, useState } from 'react';
  * roll story, fixed camera); the app itself only plays the video. Every loader keeps time with the page
  * clock, so when one wait hands to the next the roll carries on instead of starting over; only the first one fades in.
  */
+/**
+ * The roll plays once per browser session. A reload after that hands straight over: no hold, and while the page really
+ * is loading, only the still inkwell, fading in after a beat so a quick load shows nothing at all. Storage that can't
+ * be read counts as not seen, so the roll plays.
+ */
+const SEEN = 'loader-seen';
+const seen = (() => { try { return sessionStorage.getItem(SEEN) === '1'; } catch { return false; } })();
+const markSeen = () => { try { sessionStorage.setItem(SEEN, '1'); } catch { /* storage unavailable: it plays again next time */ } };
+
 /** The loader stays up at least this long from when it first appears, so the roll is seen even when loading is instant. */
-const HOLD_MS = 5000;
+const HOLD_MS = seen ? 0 : 5000;
 let firstAt: number | null = null;
 
 /** True until the loader has been up for HOLD_MS. */
@@ -26,6 +35,8 @@ export function Loader() {
   const video = useRef<HTMLVideoElement>(null);
   const [fade] = useState(() => firstAt === null);
   firstAt ??= performance.now();
+  useEffect(() => { if (!seen) markSeen(); }, []);
+  if (seen) return <div className="loader quiet" role="status" aria-label="Loading"><img src="/loading.png" alt="" /></div>;
   const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const sync = () => {
     const v = video.current;
