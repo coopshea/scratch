@@ -1,0 +1,48 @@
+{
+  "text": "another thing. the land turbines basically borrowed everything from jet engines, single crystal and coatings showed up in military engines first and trickled down to power plants a decade later. so the credit question is partly a defense budget question?? also the blades are consumables, a hot section overhaul is a huge chunk of what an operator pays over the life of the plant. every extra 50 degrees probably eats blade life. maybe the real limit isn't physics or NOx but who pays for the overhauls",
+  "units": [
+    {
+      "key": "u1",
+      "type": "claim",
+      "label": "land turbines borrowed from jets",
+      "text": "the land turbines basically borrowed everything from jet engines",
+      "home": "c4a8e8ca55"
+    },
+    {
+      "key": "u2",
+      "type": "evidence",
+      "label": "military engines got it first",
+      "text": "single crystal and coatings showed up in military engines first and trickled down to power plants a decade later.",
+      "home": "c4a8e8ca55"
+    },
+    {
+      "key": "u3",
+      "type": "question",
+      "label": "credit as a defense budget",
+      "text": "so the credit question is partly a defense budget question??",
+      "home": "c4a8e8ca55"
+    },
+    {
+      "key": "u4",
+      "type": "claim",
+      "label": "hot section blades are consumables",
+      "text": "the blades are consumables, a hot section overhaul is a huge chunk of what an operator pays over the life of the plant.",
+      "home": "6d68278fb3"
+    },
+    {
+      "key": "u5",
+      "type": "claim",
+      "label": "hotter firing eats blade life",
+      "text": "every extra 50 degrees probably eats blade life.",
+      "home": "c10cb41c4b"
+    },
+    {
+      "key": "u6",
+      "type": "objection",
+      "label": "overhaul cost as the real limit",
+      "text": "maybe the real limit isn't physics or NOx but who pays for the overhauls",
+      "home": "6d68278fb3"
+    }
+  ],
+  "untyped": []
+}

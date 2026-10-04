@@ -3,7 +3,7 @@ import path from 'node:path';
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Express } from 'express';
-import type { Project } from '../shared/types.ts';
+import type { Project, Unit } from '../shared/types.ts';
 import { labelProblem, LABEL_MAX_CHARS } from '../shared/types.ts';
 import { replay } from '../shared/replay.ts';
 import { readEvents, tempDataDir } from './helpers.ts';
@@ -18,6 +18,7 @@ beforeAll(async () => { app = (await import('../server/app.ts')).createApp(); })
 
 const FIXTURE = new URL('../examples/gas-turbines/', import.meta.url);
 const read = (f: string) => fs.readFileSync(new URL(f, FIXTURE), 'utf8');
+const SHIPPED = JSON.parse(read('example-parse.json')) as { text: string; units: { text: string; label: string; home: string }[] };
 
 describe('the gas turbines example obeys the same rules as real writing', () => {
   const units = JSON.parse(read('units.json')) as Project['units'];
@@ -72,8 +73,14 @@ describe('opening the example', () => {
 
     const p = (await request(app).get(`/api/p/${a.body.slug}`)).body as Project;
     expect(p.units.length).toBeGreaterThan(10);
-    expect(p.blurts).toHaveLength(1);
     expect(p.draft).toContain('<!--s:hook-->');
+    // The first spill is closed and parsed (under Earlier spills); the extra one sits open in the box.
+    expect(p.blurts).toHaveLength(1);
+    expect(p.blurts[0].parsed).toBe(true);
+    expect(p.open?.text).toBe(SHIPPED.text);
+    // The precoded parse stays with the code; the copy only records which example it came from.
+    expect(fs.existsSync(path.join(DATA, a.body.slug, 'example-parse.json'))).toBe(false);
+    expect(fs.existsSync(path.join(DATA, a.body.slug, 'example.json'))).toBe(true);
   });
 
   it('exports with the evidence as footnotes', async () => {
@@ -94,6 +101,59 @@ describe('opening the example', () => {
   it('refuses names that are not shipped examples', async () => {
     for (const name of ['nope', '../gas-turbines', 'Gas']) {
       expect((await request(app).post('/api/projects/example').send({ name })).status).toBe(404);
+    }
+  });
+});
+
+describe("parsing the example's open spill", () => {
+  const parseEvents = (slug: string) => readEvents(DATA, slug).filter((e) => e.type === 'parse');
+
+  it('applies the stored parse when the text is exactly as shipped: logged as the system, no model', async () => {
+    const { body } = await request(app).post('/api/projects/example').send({});
+    const res = await request(app).post(`/api/p/${body.slug}/blurts`).send({ text: SHIPPED.text });
+    expect(res.status).toBe(200);
+    const units = res.body.units as Unit[];
+    expect(units.map((u) => u.text)).toEqual(SHIPPED.units.map((u) => u.text));
+    for (const u of units) {
+      expect(res.body.blurt.text.slice(u.start, u.end)).toBe(u.text);
+      expect(u.labeledBy).toBe('system');
+      expect(u.flags?.notVerbatim).toBeFalsy();
+    }
+    // Homes land on the example's existing threads.
+    const existing = new Set((JSON.parse(read('units.json')) as Unit[]).map((u) => u.id));
+    expect(units.every((u) => u.home && existing.has(u.home))).toBe(true);
+    expect(parseEvents(body.slug).at(-1)).toMatchObject({ author: 'system', data: { fromExample: 'gas-turbines' } });
+    const p = (await request(app).get(`/api/p/${body.slug}`)).body as Project;
+    expect(p.open).toBeNull();
+    expect(p.blurts.every((b) => b.parsed)).toBe(true);
+  });
+
+  it('parses for real once the words differ in any way', async () => {
+    const { body } = await request(app).post('/api/projects/example').send({});
+    const res = await request(app).post(`/api/p/${body.slug}/blurts`).send({ text: SHIPPED.text + ' and the insurers.' });
+    expect(res.status).toBe(200);
+    expect(res.body.units.map((u: Unit) => u.text)).not.toEqual(SHIPPED.units.map((u) => u.text));
+    expect(parseEvents(body.slug).at(-1)!.author).toBe('model');
+    expect(parseEvents(body.slug).at(-1)!.data.fromExample).toBeUndefined();
+  });
+
+  it('never applies outside a document copied from an example', async () => {
+    const slug = (await request(app).post('/api/projects').send({ title: 'Gas turbines' })).body.slug;
+    await request(app).post(`/api/p/${slug}/blurts`).send({ text: SHIPPED.text });
+    expect(parseEvents(slug).at(-1)!.author).toBe('model');
+  });
+});
+
+describe('the precoded parse obeys the rules', () => {
+  it('cuts verbatim from the open spill, with labels in limits, homed on existing threads', () => {
+    const open = JSON.parse(read('spill.json'));
+    expect(open.text).toBe(SHIPPED.text);
+    const roots = new Set((JSON.parse(read('units.json')) as Unit[]).filter((u) => !u.home).map((u) => u.id));
+    for (const u of SHIPPED.units) {
+      expect(SHIPPED.text).toContain(u.text);
+      expect(labelProblem(u.label)).toBeNull();
+      expect(u.label.split(/\s+/).length).toBeGreaterThanOrEqual(3);
+      expect(roots.has(u.home)).toBe(true);
     }
   });
 });
