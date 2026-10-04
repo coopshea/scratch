@@ -8,6 +8,7 @@ import { DocList } from './DocList.tsx';
 import { EmptyBoard } from './EmptyBoard.tsx';
 import { Draft } from './Draft.tsx';
 import { Graph } from './Graph.tsx';
+import { HelpMenu } from './HelpMenu.tsx';
 import { History } from './History.tsx';
 import { Loader, useLoaderHold } from './Loader.tsx';
 import { Icon } from './icons.tsx';
@@ -282,6 +283,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
             <button className={`stage ${history ? 'on' : ''}`} onClick={toggleHistory}><Icon name="clock" small /><span className="label">History</span></button>
             <button className="stage" onClick={copyExport} title="Copy clean markdown"><Icon name="copy" small /><span className="label">{copied ? 'Copied' : 'Copy'}</span></button>
             <a className="stage" href={`/api/p/${slug}/export.md`} download title="Download clean markdown"><Icon name="download" small /><span className="label">Export</span></a>
+            <HelpMenu onError={setError} />
             {account}
           </div>
         </header>

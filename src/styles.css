@@ -131,6 +131,16 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .title:focus { outline: none; background: var(--card); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .top-error { font: 400 13px/18px var(--sans); color: var(--objection); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-menu { display: inline-flex; align-items: center; gap: 10px; }
+/* The ? menu and the shortcuts sheet: Mantine's, in the app's own card and type. */
+.help-menu { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-control); box-shadow: var(--shadow-lift); padding: 4px; }
+.help-item { font: 500 13px/18px var(--sans); color: var(--ink); border-radius: 6px; padding: 7px 10px; }
+.help-item:hover, .help-item[data-hovered] { background: var(--wash); }
+.help-sheet { background: var(--card); border-radius: var(--radius-panel); box-shadow: var(--shadow-lift); font-family: var(--sans); }
+.help-sheet-title { font: 600 15px/22px var(--sans); color: var(--ink); }
+.shortcuts { margin: 0; display: grid; gap: 8px; }
+.shortcuts > div { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 12px; }
+.shortcuts dt { display: inline-flex; align-items: center; gap: 3px; color: var(--ink-3); }
+.shortcuts dd { margin: 0; color: var(--ink-2); font: 400 13px/18px var(--sans); }
 
 /* Stage rail: 1 › 2 › 3, the current one filled. A toggle with a direction. */
 .rail { display: flex; align-items: center; gap: 2px; }

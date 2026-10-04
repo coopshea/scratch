@@ -87,3 +87,4 @@ All three stages work.
 - **Export:** `export` downloads clean markdown; `copy` puts the same on the clipboard. Section markers drop out, evidence placed in the text becomes numbered footnotes, figures still to make become `*[Figure: …]*`, and other idea chips disappear.
 - **Documents:** toggle with ≡ at top left; hidden by default. Each shows its title and its top claim labels.
 - **History:** a slider over every event, read-only, in any stage.
+- **Help:** `?` at top right. "Open an example" copies `examples/gas-turbines/` (a sample spill, parsed, shaped and partly drafted; same layout as a project folder) into your own documents as a fresh copy each time, logged as `project.fromExample` by `system`; no parse runs. "Keyboard shortcuts" lists the ones that exist.

@@ -66,6 +66,15 @@ describe('hosted: sign-in and accounts', () => {
     expect((await as('bob').get(`/api/p/${made.body.slug}`)).body.meta.title).not.toBe('Secret plans');
   });
 
+  it("copies an example into the writer's own space, without using a parse", async () => {
+    const before = (await as('alice').get('/api/me')).body.account.freeParsesUsed;
+    const made = await as('alice').post('/api/projects/example').send({});
+    expect(made.status).toBe(200);
+    expect((await as('alice').get(`/api/p/${made.body.slug}`)).body.units.length).toBeGreaterThan(10);
+    expect((await as('bob').get('/api/projects')).body.map((p: { slug: string }) => p.slug)).not.toContain(made.body.slug);
+    expect((await as('alice').get('/api/me')).body.account.freeParsesUsed).toBe(before);
+  });
+
   it('keeps outlines per writer', async () => {
     await as('alice').put('/api/archetypes').send({ name: 'my essay', outline: 'hook\npoint' });
     expect((await as('bob').get('/api/archetypes')).body).toEqual([]);

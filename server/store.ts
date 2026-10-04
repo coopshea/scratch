@@ -172,6 +172,21 @@ export function writeArchetypes(list: StructureDef[]) {
 }
 
 /**
+ * Sample documents, shipped with the code in examples/<name>/ in the same layout as a project folder. Opening one
+ * copies it into the writer's own space as a new document, so editing it is harmless. Its own history comes along,
+ * and the copy itself is logged as the system's doing.
+ */
+const EXAMPLES_DIR = path.resolve(import.meta.dirname, '..', 'examples');
+export function copyExample(name: string, slug: string) {
+  if (!/^[a-z0-9-]{1,64}$/.test(name) || !fs.existsSync(path.join(EXAMPLES_DIR, name, 'meta.json'))) throw new HttpError(404, 'No such example');
+  assertSlug(slug);
+  fs.mkdirSync(root(), { recursive: true });
+  fs.cpSync(path.join(EXAMPLES_DIR, name), path.join(root(), slug), { recursive: true, errorOnExist: true, force: false });
+  appendEvent(slug, 'system', 'project.fromExample', { example: name });
+  return readMeta(slug);
+}
+
+/**
  * Delete a document by moving its folder to projects/.trash (named with the time), never erasing it: a wrong
  * click can be undone by moving the folder back. The deletion is logged in the document's own history first.
  */

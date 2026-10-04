@@ -1,0 +1,30 @@
+{
+  "structure": "persuasive",
+  "lanes": {
+    "paper": {},
+    "persuasive": {
+      "hook": [
+        "4d2a58d322"
+      ],
+      "context": [
+        "336bfa8e78"
+      ],
+      "thesis": [
+        "c10cb41c4b"
+      ],
+      "p1": [
+        "f8e1b5ad08",
+        "9e0e69f812",
+        "860ef842ff",
+        "d52f81ed76"
+      ],
+      "p2": [
+        "c4a8e8ca55"
+      ],
+      "objection": [
+        "315b77a853"
+      ]
+    },
+    "teaching": {}
+  }
+}

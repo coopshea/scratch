@@ -9,7 +9,7 @@ import type { Usage } from './parser.ts';
 import { captureServerError } from './posthog.ts';
 import { describeError, isWriterFacing, parseBlurt, ParseFailure, type ParsedUnit } from './parser.ts';
 import {
-  appendEvent, assertSlug, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
+  appendEvent, assertSlug, copyExample, inSpace, root, userRoot, trashProject, getBlurt, HttpError, listProjects, readArchetypes, writeArchetypes, loadProject, newId, projectDir, readDraft, readMeta, readUnits, saveAsset, saveBlurt,
   listBlurts, withLock, writeBoard, writeDraft, writeMeta, writeUnits,
 } from './store.ts';
 import { outlineToStructure, slugify, structureMap, STRUCTURES, type Board, type Lane } from '../shared/structures.ts';
@@ -234,15 +234,31 @@ export function createApp(hosted?: Hosted): Express {
     res.send(md);
   }));
 
-  app.post('/api/projects', wrap((req, res) => {
-    const title = String(req.body?.title ?? '').trim() || 'untitled';
-    const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled';
+  /** A slug for a new document: `base`, or `base-2`, `base-3`… when taken. */
+  const freeSlug = (base: string) => {
     const taken = new Set(listProjects().map((p) => p.slug));
     let slug = base, i = 2;
     while (taken.has(slug)) slug = `${base}-${i++}`;
+    return slug;
+  };
+
+  app.post('/api/projects', wrap((req, res) => {
+    const title = String(req.body?.title ?? '').trim() || 'untitled';
+    const slug = freeSlug(title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'untitled');
     projectDir(slug);
     writeMeta(slug, { title });
     appendEvent(slug, 'human', 'project.create', { title });
+    res.json({ slug, title });
+  }));
+
+  /**
+   * A sample document, copied into the writer's own space (store.ts). No parse runs, so it costs nothing. Each open
+   * is a fresh copy: nothing to track, and a writer who has edited theirs can always get a clean one.
+   */
+  app.post('/api/projects/example', wrap((req, res) => {
+    const name = String(req.body?.name ?? 'gas-turbines');
+    const slug = freeSlug(`example-${name}`.slice(0, 64));
+    const { title } = copyExample(name, slug);
     res.json({ slug, title });
   }));
 
