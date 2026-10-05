@@ -134,3 +134,34 @@ test('Help: the ? menu opens a copy of the example, and its waiting spill parses
     return { author: parse.author, from: parse.data.fromExample, labels: parse.data.units.map((u) => u.label).includes('hotter firing eats blade life') };
   }).toEqual({ author: 'system', from: 'gas-turbines', labels: true });
 });
+
+test('Stages: the bar is the navigation, lights the next stage when ready, and hints once', async ({ page, request }) => {
+  const slug = await newProject(request, 'stages');
+  const { claim } = await spill(request, slug);
+  await open(page, slug, 'Spill');
+
+  // Ideas exist, so Shape is next: lit, and a click goes there.
+  const nav = page.getByRole('navigation', { name: 'Stages' });
+  const shape = nav.getByRole('button', { name: 'Shape' });
+  const draft = nav.getByRole('button', { name: 'Draft' });
+  await expect(shape).toHaveClass(/\bnext\b/);
+  await expect(draft).not.toHaveClass(/\bnext\b/);
+  await shape.click();
+  await expect(shape).toHaveAttribute('aria-current', 'step');
+  await expect(page.locator('.levels')).toBeVisible();
+
+  // First visit to Shape: one line under the bar, gone on the first action and not back after a reload.
+  const hint = page.locator('.stage-hint');
+  await expect(hint).toHaveText('Drag ideas onto the outline.');
+  await page.locator('.levels').click({ position: { x: 5, y: 5 } });
+  await expect(hint).toBeHidden();
+  await page.reload();
+  await expect(shape).toHaveAttribute('aria-current', 'step');
+  await expect(hint).toBeHidden();
+
+  // Nothing placed yet, so Draft waits; once an idea sits on a level, Draft lights up.
+  await expect(draft).not.toHaveClass(/\bnext\b/);
+  await place(request, slug, { thesis: [claim.id] });
+  await page.reload();
+  await expect(draft).toHaveClass(/\bnext\b/);
+});

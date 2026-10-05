@@ -80,7 +80,7 @@ projects/<slug>/
 
 ## Status
 
-All three stages work. The stepper at the top reads 1 Spill → 2 Shape → 3 Draft; History, Copy and Export sit at its right.
+All three stages work. The stepper at the top reads 1 Spill → 2 Shape → 3 Draft and is the only way between them: hover a stage for one line on what it's for, and once the current stage has done its part (ideas in Spill, an idea on a level in Shape) the next one turns blue with a →. The first time you enter each stage, one line under the bar says what to do there; it folds away on your first action and doesn't come back (remembered per browser). History, Copy and Export sit at the stepper's right.
 
 - **Spill:** blurt (type, paste, or speak), then Parse writing (⌘↵). The parser is `claude-opus-5-5`; it cuts the blurt verbatim into typed ideas with short labels. Each cluster is a card, its root on top and pieces beneath, packed into masonry columns that fill the pane; lone roots and loose pieces get their own muted column at the right. A card shows its root and up to four pieces; the rest fold to dots behind +N. Same content, same layout, every time. Rich-text note per idea in a resizable sheet on the right.
 - **Readwise:** with a token, "pull relevant from Readwise" under the spill searches each thread and offers matching passages under the thread that found them; nothing comes in until the writer picks one (click or 1–9). With an idea open in any stage, ⌘⇧E lists 5 related passages; 1–5 files one under that idea's thread. A passage comes in as one idea: the writer's note is its text, the highlight shows as a quote with its source linked. No parse, no credits. Without a token the controls show greyed and say where to connect.
