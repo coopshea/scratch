@@ -23,6 +23,8 @@ export default defineConfig({
     baseURL: `http://localhost:${PORT}`,
     trace: 'retain-on-failure',
     viewport: { width: 1440, height: 900 },
+    // The demo has been seen, so it doesn't play over the other tests; its own test starts with clean storage.
+    storageState: { cookies: [], origins: [{ origin: `http://localhost:${PORT}`, localStorage: [{ name: 'demo-seen', value: '1' }] }] },
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 } } }],
   webServer: {

@@ -165,3 +165,52 @@ test('Stages: the bar is the navigation, lights the next stage when ready, and h
   await page.reload();
   await expect(draft).toHaveClass(/\bnext\b/);
 });
+
+test.describe('Demo', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test('plays once on a first visit, replays from the ? menu, stops on a press or Esc, and changes nothing', async ({ page, request }) => {
+    const slug = await newProject(request, 'demo');
+    const snapshot = async () => {
+      const p = await (await request.get(`/api/p/${slug}`)).json();
+      const events = await (await request.get(`/api/p/${slug}/events`)).json();
+      return { units: p.units, blurts: p.blurts, open: p.open, board: p.board, draft: p.draft, events };
+    };
+    await page.goto(`/?p=${slug}`);
+    const demo = page.locator('.demo');
+    const before = await snapshot();
+
+    // First visit to an empty Spill: once the loader hands over, it plays by itself, typing into its own spill box,
+    // and a press stops it.
+    await expect(demo).toBeVisible({ timeout: 15_000 });
+    await expect.poll(() => demo.locator('textarea.blurt').inputValue()).toMatch(/^so where/);
+    await page.mouse.click(700, 500);
+    await expect(demo).toBeHidden();
+    await expect(page.getByRole('textbox', { name: /Braindump here/ })).toHaveValue('');
+
+    // Seen: a reload shows the plain empty board.
+    await page.reload();
+    await expect(page.locator('.empty')).toBeVisible();
+    await expect(demo).toBeHidden();
+
+    // From the ? menu: it runs on through the real Shape board, and Esc stops it.
+    await page.getByRole('button', { name: 'Help' }).click();
+    await page.getByRole('menuitem', { name: 'Watch the demo' }).click();
+    await expect(demo).toBeVisible();
+    await expect(demo.locator('.levels .unit.is-placed').first()).toBeVisible({ timeout: 20_000 });
+    await page.keyboard.press('Escape');
+    await expect(demo).toBeHidden();
+
+    // The writer's document is as it was: no parse, no save, nothing logged.
+    expect(await snapshot()).toEqual(before);
+  });
+
+  test('waits for the ? menu when the writer prefers reduced motion', async ({ page, request }) => {
+    const slug = await newProject(request, 'demo-still');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(`/?p=${slug}`);
+    await expect(page.locator('.empty')).toBeVisible({ timeout: 15_000 });
+    await page.waitForTimeout(500); // past the moment it would have started
+    await expect(page.locator('.demo')).toBeHidden();
+  });
+});

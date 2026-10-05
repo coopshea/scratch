@@ -30,10 +30,13 @@ type Props = {
   /** Readwise connected and something spilled: offer related reading; picking a passage adds it under its thread. */
   onAdopt?: (id: string, home: string | null) => Promise<void>;
   readwiseOff?: ReadwiseOff;
+  /** The demo (Demo.tsx): the box shows this scripted text, read-only; nothing is saved and the focus is left alone. */
+  demo?: string;
 };
 
-export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlurtId, outOfCredits, billing, onBlurt, onReparse, sheetOpen, onSelect, onAdopt, readwiseOff }: Props) {
-  const [text, setText] = useState(open?.text ?? '');
+export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlurtId, outOfCredits, billing, onBlurt, onReparse, sheetOpen, onSelect, onAdopt, readwiseOff, demo }: Props) {
+  const [typed, setText] = useState(open?.text ?? '');
+  const text = demo ?? typed;
   const box = useRef<HTMLTextAreaElement>(null);
   // The box is always saved: about a second after typing stops, and on the way out. One save per pause, not per key.
   const saved = useRef(open?.text ?? '');
@@ -41,16 +44,16 @@ export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlur
   const flush = useRef(() => {});
   flush.current = () => {
     window.clearTimeout(pending.current); pending.current = undefined;
-    if (text !== saved.current) { saved.current = text; onSaveSpill(text); }
+    if (demo === undefined && text !== saved.current) { saved.current = text; onSaveSpill(text); }
   };
   useEffect(() => {
-    if (text === saved.current) return;
+    if (demo !== undefined || text === saved.current) return;
     window.clearTimeout(pending.current);
     pending.current = window.setTimeout(() => flush.current(), 1000);
   }, [text]);
   useEffect(() => () => { if (pending.current !== undefined) flush.current(); }, []);
   // The spill page always holds the cursor unless a note is open.
-  useEffect(() => { if (!busy && !sheetOpen) box.current?.focus(); }, [busy, sheetOpen]);
+  useEffect(() => { if (!busy && !sheetOpen && demo === undefined) box.current?.focus(); }, [busy, sheetOpen, demo]);
   // A closed spill no parse has run over (one that failed): hand cuts from it don't count.
   const parsedIds = new Set(units.filter((u) => u.cutBy !== 'human').map((u) => u.blurtId));
   const unparsed = blurts.filter((b) => !b.parsed && !parsedIds.has(b.id) && b.id !== failedBlurtId);
@@ -103,7 +106,8 @@ export function Talk({ units, blurts, open, onSaveSpill, busy, error, failedBlur
             dragAsCard(e, words);
           }}
           disabled={busy}
-          autoFocus
+          readOnly={demo !== undefined}
+          autoFocus={demo === undefined}
           spellCheck
           aria-label="Braindump here. Type, speak, or paste anything. Fragments are fine."
         />

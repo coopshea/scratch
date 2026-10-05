@@ -17,7 +17,7 @@ const SHORTCUTS: [keys: string[], what: string][] = [
 ];
 
 /** The ? at the top right. Mantine's menu and modal (already here through BlockNote), styled by the app's tokens. */
-export function HelpMenu({ onError }: { onError: (message: string) => void }) {
+export function HelpMenu({ onError, onDemo }: { onError: (message: string) => void; onDemo: () => void }) {
   const [keys, setKeys] = useState(false);
 
   const openExample = async () => {
@@ -35,7 +35,7 @@ export function HelpMenu({ onError }: { onError: (message: string) => void }) {
           <button className="icon-btn" aria-label="Help" title="Help"><Icon name="help" /></button>
         </Menu.Target>
         <Menu.Dropdown>
-          {/* "Watch the demo" goes first here once the demo exists (#45). */}
+          <Menu.Item onClick={onDemo}>Watch the demo</Menu.Item>
           <Menu.Item onClick={openExample}>Open an example</Menu.Item>
           <Menu.Item onClick={() => setKeys(true)}>Keyboard shortcuts</Menu.Item>
         </Menu.Dropdown>

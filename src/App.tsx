@@ -4,6 +4,7 @@ import { structureMap, type Board, type StructureDef } from '../shared/structure
 import { replay, type LogEvent } from '../shared/replay.ts';
 import { settle } from '../shared/clusters.ts';
 import { api, archetypes, slug, type CutSource } from './api.ts';
+import { Demo } from './Demo.tsx';
 import { DocList } from './DocList.tsx';
 import { EmptyBoard } from './EmptyBoard.tsx';
 import { Draft } from './Draft.tsx';
@@ -58,6 +59,8 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
   const [outlinesLoaded, setOutlinesLoaded] = useState(false);
   useEffect(() => { archetypes.list().then(setCustom).catch(() => undefined).finally(() => setOutlinesLoaded(true)); }, []);
   const [copied, setCopied] = useState(false);
+  // The demo over the page: on a first visit to an empty Spill board (EmptyBoard), or from the ? menu.
+  const [demo, setDemo] = useState<'first_visit' | 'menu' | null>(null);
   // Readwise connected: Spill offers a pull from reading, and a note can look up related passages. Not connected: those
   // controls show greyed, pointing to where to connect (the account page hosted, .env locally).
   const [reading, setReading] = useState<boolean | null>(null);
@@ -254,7 +257,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
         <section className="canvas" {...(history ? {} : drop)}>
           {units.some((u) => u.status !== 'cut')
             ? <Graph units={units} selectedId={selectedId} onSelect={setSelectedId} movable={!history} />
-            : <EmptyBoard />}
+            : <EmptyBoard onDemo={history ? undefined : () => setDemo('first_visit')} />}
         </section>
         {sheet}
       </main>
@@ -300,13 +303,14 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
             <button className={`stage ${history ? 'on' : ''}`} onClick={toggleHistory}><Icon name="clock" small /><span className="label">History</span></button>
             <button className="stage" onClick={copyExport} title="Copy clean markdown"><Icon name="copy" small /><span className="label">{copied ? 'Copied' : 'Copy'}</span></button>
             <a className="stage" href={`/api/p/${slug}/export.md`} download title="Download clean markdown"><Icon name="download" small /><span className="label">Export</span></a>
-            <HelpMenu onError={setError} />
+            <HelpMenu onError={setError} onDemo={() => setDemo('menu')} />
             {account}
           </div>
         </header>
         <StageHint hint={hint} />
         {body}
       </div>
+      {demo && <Demo from={demo} onEnd={() => setDemo(null)} />}
     </div>
   );
 }
