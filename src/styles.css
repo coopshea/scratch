@@ -124,7 +124,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
   .topbar-side.right .stage { padding: 0 8px; }
 }
 @media (max-width: 860px) {
-  .rail .step { padding: 0 8px; font-size: 13px; }
+  .rail .step { padding: 0 10px 0 6px; font-size: 14px; }
   .topbar { gap: 8px; padding: 0 8px; }
 }
 .topbar-side.right { justify-content: flex-end; }
@@ -147,12 +147,21 @@ button, input, select, textarea { font: inherit; color: inherit; }
 /* Stage rail: 1 › 2 › 3, the current one filled. A toggle with a direction. */
 .rail { display: flex; align-items: center; gap: 2px; }
 .rail .sep { color: var(--ink-3); display: grid; place-items: center; }
-.step { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 8px; border: 0; border-radius: 999px; background: transparent;
-  color: var(--ink-2); font: 600 14px/20px var(--sans); cursor: pointer; white-space: nowrap; }
-.step:hover { background: var(--wash); color: var(--ink); }
-.step .num { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--edge); font: 600 11px/1 var(--sans); }
-.step.on { background: var(--ink); color: var(--on-ink); }
+.step { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px 0 9px; border: 0; border-radius: 999px; background: transparent;
+  color: var(--ink-2); font: 600 16px/22px var(--sans); cursor: pointer; white-space: nowrap; transition: background-color .12s, color .12s; }
+.step:hover { background: var(--desk-2); color: var(--ink); }
+.step .num { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--edge); font: 600 12px/1 var(--sans); }
+.step.on { background: var(--ink); color: var(--on-ink); cursor: default; }
 .step.on .num { background: var(--on-ink); border-color: var(--on-ink); color: var(--ink); }
+/* The way on, once the current stage has done its part: blue pencil, with an arrow. */
+.step.next { color: var(--pencil); gap: 6px; }
+.step.next .num { border-color: var(--pencil); margin-right: 2px; }
+.step.next:hover { background: var(--pencil-soft); color: var(--pencil); }
+.stage-tip { background: var(--ink); color: var(--on-ink); font: 500 13px/18px var(--sans); padding: 6px 10px; border-radius: var(--radius-control); }
+/* First visit to a stage: one quiet line under the bar, folding away on the first action. */
+.stage-hint { flex: none; height: 30px; margin: 0; padding: 4px 16px 0; overflow: hidden; text-align: center; white-space: nowrap; text-overflow: ellipsis;
+  background: var(--page); border-bottom: 1px solid var(--line); font: italic 400 14px/20px var(--sans); color: var(--pencil); transition: height .2s ease, opacity .15s ease; }
+.stage-hint.leaving { height: 0; opacity: 0; border-bottom-width: 0; }
 
 .body { flex: 1; display: grid; grid-template-columns: minmax(320px, 440px) minmax(0, 1fr); min-height: 0; }
 .body > * { min-height: 0; }
@@ -236,7 +245,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 /* ---------- the board (Spill) ---------- */
 .canvas { position: relative; min-width: 0; overflow: hidden; background: var(--desk); }
-.next-stage { position: absolute; top: 12px; right: 16px; z-index: 30; }
 /* Dragging words or an idea onto the board: blue pencil marks where it lands (an idea or a tray, else the open board). */
 .canvas.drop-ready::after { content: ''; position: absolute; inset: 0; z-index: 20; pointer-events: none; box-shadow: inset 0 0 0 2px var(--pencil-line); }
 .canvas .unit.drop-on { outline: 2px solid var(--pencil); outline-offset: 2px; }

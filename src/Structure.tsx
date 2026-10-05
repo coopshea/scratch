@@ -28,11 +28,9 @@ type Props = {
   readOnly?: boolean;
   structures: Record<string, StructureDef>;
   onCustom: (list: StructureDef[]) => void;
-  /** The button on to the next stage, at the right of the outline bar. */
-  next?: React.ReactNode;
 };
 
-export function Structure({ units, board, onBoard, onSelect, selectedId, readOnly = false, structures, onCustom, next }: Props) {
+export function Structure({ units, board, onBoard, onSelect, selectedId, readOnly = false, structures, onCustom }: Props) {
   const live = useMemo(() => units.filter((u) => u.status !== 'cut'), [units]);
   const byId = useMemo(() => new Map(live.map((u) => [u.id, u])), [live]);
   const sid = board.structure;
@@ -410,8 +408,6 @@ export function Structure({ units, board, onBoard, onSelect, selectedId, readOnl
         ))}
         {!readOnly && <button className="stage add" onClick={() => setDialog({ name: '', outline: '' })} aria-label="Make your own outline" title="Make your own outline">+</button>}
         </div>
-        <span className="spacer" />
-        {next}
       </nav>
       {dialog && (
         <div className="outline-dialog" onKeyDown={(e) => { if (e.key === 'Escape') setDialog(null); if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) saveOutline(); }}>

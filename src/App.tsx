@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Project, Unit } from '../shared/types.ts';
 import { structureMap, type Board, type StructureDef } from '../shared/structures.ts';
 import { replay, type LogEvent } from '../shared/replay.ts';
@@ -13,17 +13,12 @@ import { History } from './History.tsx';
 import { Loader, useLoaderHold } from './Loader.tsx';
 import { Icon } from './icons.tsx';
 import { NoteSheet } from './NoteSheet.tsx';
+import { StageHint, StageRail, useStageHint, type Stage } from './StageRail.tsx';
 import { Structure } from './Structure.tsx';
 import { Talk } from './Talk.tsx';
 import { posthog } from './posthog.ts';
 import { useBoardDrop } from './spillDrag.ts';
 import type { ReadwiseOff } from './ReadwiseOff.tsx';
-
-type Stage = 'talk' | 'structure' | 'draft';
-const STAGES: Stage[] = ['talk', 'structure', 'draft'];
-/** What the writer sees; the stage ids stay as they are in code, saved preferences and the event log. */
-const STAGE_NAME: Record<Stage, string> = { talk: 'Spill', structure: 'Shape', draft: 'Draft' };
-const STAGE_PURPOSE: Record<Stage, string> = { talk: 'Get it all out', structure: 'Give it an order', draft: 'Write it' };
 
 /** Hosted only: credit packs for the out-of-credits notice, and what buying one does. */
 export type Billing = { packs: { cents: number; credits: number }[]; buy: (cents: number, blurtId: string) => void; keyHref: string };
@@ -81,6 +76,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
     } catch (e) { setError((e as Error).message); }
   };
 
+  const hint = useStageHint(stage, !!history);
   const setStage = (s: Stage) => {
     if (s !== stage) posthog?.capture('stage_changed', { stage: s });
     setStageState(s); setSelectedId(null); writePref(`stage:${slug}`, s);
@@ -233,6 +229,10 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
   const blurts = past ? past.blurts : project.blurts;
   const board = past ? past.board : project.board;
   const draft = past ? past.draft : project.draft;
+  // The next stage lights up once this one has done its part: ideas to shape, then an idea on a level to draft from.
+  const live = new Set(units.filter((u) => u.status !== 'cut').map((u) => u.id));
+  const placed = Object.values(board.lanes[board.structure] ?? {}).some((ids) => ids.some((id) => live.has(id)));
+  const next: Stage | null = stage === 'talk' && live.size ? 'structure' : stage === 'structure' && placed ? 'draft' : null;
   const selected = units.find((u) => u.id === selectedId && (past || u.status !== 'cut')) ?? null;
 
   const sheet = selected && (
@@ -253,10 +253,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
               onAdopt={reading !== null && units.some((u) => u.status !== 'cut') ? onAdopt : undefined} readwiseOff={readwiseOff} />}
         <section className="canvas" {...(history ? {} : drop)}>
           {units.some((u) => u.status !== 'cut')
-            ? <>
-                <Graph units={units} selectedId={selectedId} onSelect={setSelectedId} movable={!history} />
-                {!history && <button className="btn btn-secondary btn-sm next-stage" onClick={() => setStage('structure')}>Shape these ideas <Icon name="arrow" small /></button>}
-              </>
+            ? <Graph units={units} selectedId={selectedId} onSelect={setSelectedId} movable={!history} />
             : <EmptyBoard />}
         </section>
         {sheet}
@@ -267,8 +264,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
       <main className={`body structure-stage ${selected ? 'has-sheet' : ''}`}>
         {history && <History events={history.events} count={history.count} onCount={(count) => setHistory({ ...history, count })}
           units={units} selectedId={selectedId} onSelect={setSelectedId} />}
-        <Structure units={units} board={board} onBoard={onBoard} structures={structures} onCustom={setCustom} onSelect={setSelectedId} selectedId={selectedId} readOnly={!!history}
-          next={!history && <button className="btn btn-secondary btn-sm" onClick={() => setStage('draft')}>Draft it <Icon name="arrow" small /></button>} />
+        <Structure units={units} board={board} onBoard={onBoard} structures={structures} onCustom={setCustom} onSelect={setSelectedId} selectedId={selectedId} readOnly={!!history} />
         {sheet}
       </main>
     );
@@ -298,15 +294,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
             <button className="icon-btn" onClick={toggleDocs} aria-label="Documents" title="Documents"><Icon name="panel" /></button>
             <Title value={project.meta.title} onSave={onRename} />
           </div>
-          <nav className="rail" aria-label="Stages">
-            {STAGES.map((s, i) => (
-              <Fragment key={s}>
-                {i > 0 && <span className="sep" aria-hidden><Icon name="chevron" small /></span>}
-                <button className={`step ${s === stage ? 'on' : ''}`} aria-current={s === stage ? 'step' : undefined}
-                  title={STAGE_PURPOSE[s]} onClick={() => setStage(s)}><span className="num">{i + 1}</span>{STAGE_NAME[s]}</button>
-              </Fragment>
-            ))}
-          </nav>
+          <StageRail stage={stage} next={next} onStage={setStage} quiet={!!history} hint={hint?.stage ?? null} />
           <div className="topbar-side right">
             {error && stage !== 'talk' && <span className="top-error" onClick={() => setError(null)}>{error}</span>}
             <button className={`stage ${history ? 'on' : ''}`} onClick={toggleHistory}><Icon name="clock" small /><span className="label">History</span></button>
@@ -316,6 +304,7 @@ export function App({ account, billing, onSpent }: { account?: React.ReactNode; 
             {account}
           </div>
         </header>
+        <StageHint hint={hint} />
         {body}
       </div>
     </div>
