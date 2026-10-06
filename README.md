@@ -26,6 +26,8 @@ The hosted site is the same app with sign-in turned on. It turns on when `CLERK_
 
 `npm run build` then `npm start` runs the production server. It refuses to start without `CLERK_SECRET_KEY` and `DATABASE_URL`.
 
+**Deploying:** Railway deploys the `prod` branch, once GitHub CI passes on it. Merging to `main` doesn't deploy; to ship, fast-forward `prod` with `git push origin origin/main:prod`. `railway.json` starts the server with node directly (not `npm start`) so a redeploy's SIGTERM exits cleanly instead of reading as a crash.
+
 ## Keys
 
 Keys live in `.env`, which is gitignored. Start from the template:
