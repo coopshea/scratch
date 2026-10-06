@@ -69,3 +69,14 @@ if (production) {
 
 if (!hosted) projectDir('scratch');
 server.listen(PORT, () => console.log(`scratch on http://localhost:${PORT}${hosted ? ' (hosted: sign-in required)' : ''}`));
+
+// A redeploy stops the old container with SIGTERM. Exit 0 so the host doesn't report it as a crash;
+// requests already in flight get a moment to finish.
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(signal, () => {
+    console.log(`${signal}: shutting down`);
+    server.close(() => process.exit(0));
+    server.closeIdleConnections();
+    setTimeout(() => process.exit(0), 5000).unref();
+  });
+}
